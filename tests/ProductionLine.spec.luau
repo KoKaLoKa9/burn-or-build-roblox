@@ -331,6 +331,61 @@ do
 	check("freed ports can connect again", line:Connect(intake.id, dryer.id, 4) ~= nil)
 end
 
+-- Week 6: wet straw goes straight into a mushroom house, and a market stall buys the baskets.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local intake = line:AddNode("CollectionPoint", "player")
+	local house = line:AddNode("MushroomHouse", "player")
+	local stall = line:AddNode("MarketStall", "player")
+	check("mushroom house takes wet straw", line:Connect(intake.id, house.id, 2) ~= nil)
+	check("market stall takes mushroom baskets", line:Connect(house.id, stall.id, 2) ~= nil)
+	line:Deposit(intake.id, 4)
+	local all = {}
+	for _ = 1, 200 do
+		for _, event in line:Step(1) do
+			table.insert(all, event)
+		end
+	end
+	local revenue, sales = sum(all, "Sale")
+	check("4 wet straw make 2 baskets", sales == 2, tostring(sales))
+	check("each basket sells for 180", revenue == 360, tostring(revenue))
+end
+
+-- Week 6: shredded straw into a pyrolysis kiln makes biochar, sold at a market stall.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local intake = line:AddNode("CollectionPoint", "player")
+	local dryer = line:AddNode("Dryer", "player")
+	local shredder = line:AddNode("Shredder", "player")
+	local kiln = line:AddNode("PyrolysisKiln", "player")
+	local stall = line:AddNode("MarketStall", "player")
+	assert(line:Connect(intake.id, dryer.id, 2))
+	assert(line:Connect(dryer.id, shredder.id, 2))
+	check("kiln takes shredded straw", line:Connect(shredder.id, kiln.id, 2) ~= nil)
+	check("market stall takes biochar", line:Connect(kiln.id, stall.id, 2) ~= nil)
+	line:Deposit(intake.id, 6)
+	local all = {}
+	for _ = 1, 400 do
+		for _, event in line:Step(1) do
+			table.insert(all, event)
+		end
+	end
+	local revenue, sales = sum(all, "Sale")
+	local cost = sum(all, "OperatingCost")
+	check("6 straw make 2 biochar sacks", sales == 2, tostring(sales))
+	check("each sack sells for 240", revenue == 480, tostring(revenue))
+	check("2 kiln cycles cost 20", cost == 20, tostring(cost))
+end
+
+-- The big buyer still takes only pellet crates.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local kiln = line:AddNode("PyrolysisKiln", "player")
+	local buyer = line:AddNode("BuyerDepot", "player")
+	local link, message = line:Connect(kiln.id, buyer.id, 2)
+	check("buyer depot refuses biochar", link == nil, message)
+end
+
 print(string.format("\n%d passed, %d failed", passes, failures))
 if failures > 0 then
 	error("ProductionLine tests failed")

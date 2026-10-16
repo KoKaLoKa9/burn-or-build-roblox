@@ -26,8 +26,14 @@ local GameConfig = {
 			-- Week 5 replanting. Balance assumptions, tune in playtests.
 			Planting = {
 				SeedCost = 5, -- credits per row
-				GrowSeconds = 120,
-				GrainCredits = 30, -- per ripe row harvested
+				-- Soil health (balance pass). Burning straw strips the soil of organic matter and
+				-- nitrogen, so each burn drops a paddy one level: rice then grows slower and yields
+				-- less grain. Each clean clear (all straw collected) restores one level.
+				Soil = {
+					{ Name = "Poor", GrowSeconds = 170, GrainCredits = 18 },
+					{ Name = "Fair", GrowSeconds = 145, GrainCredits = 24 },
+					{ Name = "Good", GrowSeconds = 120, GrainCredits = 30 },
+				},
 				-- Burned straw lies charred this long before the rows can be replanted.
 				BurnClearSeconds = 6,
 			},

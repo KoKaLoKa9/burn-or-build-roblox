@@ -61,6 +61,9 @@ type Row = {
 	bottom: CFrame,
 	stage: string, -- Stubble, Empty, Growing, Ripe
 	plantedAt: number,
+	-- Fixed when the row is planted, from the soil at that moment.
+	growSeconds: number,
+	grain: number,
 	prompt: ProximityPrompt,
 }
 
@@ -75,7 +78,7 @@ export type Options = {
 	rows: { BasePart },
 	-- Which end of the rows faces the path: 1 is the +Z end (default), -1 the -Z end.
 	front: number?,
-	planting: any, -- SeedCost, GrowSeconds, GrainCredits, BurnClearSeconds
+	planting: any, -- SeedCost, Soil levels, BurnClearSeconds
 	burnExposure: number,
 	burnTrustLoss: number,
 	-- Only the owner may plant, harvest, and burn. No owner means anyone may.
@@ -116,6 +119,9 @@ export type Handle = {
 	-- can call these every tick.
 	PlantNext: (player: Player) -> (boolean, string),
 	HarvestNext: (player: Player) -> (boolean, string),
+	-- Lifts one straw sheaf off the field for a baler. Counts as collecting by hand, so a
+	-- field the baler empties is a clean clear.
+	TakeSheaf: () -> boolean,
 }
 
 local handles: { [Model]: Handle } = setmetatable({}, { __mode = "k" }) :: any
@@ -196,6 +202,17 @@ function PaddyField.new(options: Options): Handle
 	local batch = 0
 	local sheaves: { Model } = {}
 	local rows: { Row } = {}
+	-- Soil health, an index into planting.Soil (1 is the worst). Fields start healthy.
+	local soil = #planting.Soil
+	local function soilLevel(): any
+		return planting.Soil[soil]
+	end
+	local function soilNote(): string
+		return if soil < #planting.Soil
+			then string.format("  ·  Soil %s", string.lower(soilLevel().Name))
+			else ""
+	end
+	model:SetAttribute("Soil", soilLevel().Name)
 
 	-- Build mode reads the owner to tell whether a farm machine may be placed here.
 	model:SetAttribute("OwnerUserId", if options.owner then options.owner.UserId else 0)
@@ -259,7 +276,7 @@ function PaddyField.new(options: Options): Handle
 		for _, row in rows do
 			if row.stage == "Growing" then
 				growing += 1
-				nextRipe = math.min(nextRipe, row.plantedAt + planting.GrowSeconds)
+				nextRipe = math.min(nextRipe, row.plantedAt + row.growSeconds)
 			elseif row.stage == "Ripe" then
 				ripe += 1
 			elseif row.stage == "Empty" then
@@ -297,10 +314,7 @@ function PaddyField.new(options: Options): Handle
 				"RIPE",
 				Colors.Gold,
 				count(ripe, "row") .. " ripe",
-				string.format(
-					"Harvest at the row ends: %d credits of grain each",
-					planting.GrainCredits
-				)
+				"Harvest at the row ends for grain" .. soilNote()
 			)
 		elseif growing > 0 then
 			FarmBoard.Set(
@@ -312,9 +326,11 @@ function PaddyField.new(options: Options): Handle
 					count(growing, "row"),
 					formatClock(nextRipe - now())
 				),
-				if empty > 0
-					then count(empty, "row") .. " still empty"
-					else "Harvest gives grain and new straw"
+				(
+					if empty > 0
+						then count(empty, "row") .. " still empty"
+						else "Harvest gives grain and new straw"
+				) .. soilNote()
 			)
 		else
 			FarmBoard.Set(
@@ -323,6 +339,7 @@ function PaddyField.new(options: Options): Handle
 				Colors.Teal,
 				"Field clear",
 				string.format("Plant at the row ends: %d credits a row", planting.SeedCost)
+					.. soilNote()
 			)
 		end
 
@@ -343,6 +360,39 @@ function PaddyField.new(options: Options): Handle
 			if row.stage == "Stubble" then
 				row.stage = "Empty"
 				applyLook(row, EMPTY_LOOK)
+			end
+		end
+		-- Soil health: fire burns off organic matter and nitrogen; a clean clear lets it recover.
+		local before = soil
+		if how == "Burned" then
+			soil = math.max(1, soil - 1)
+		else
+			soil = math.min(#planting.Soil, soil + 1)
+		end
+		model:SetAttribute("Soil", soilLevel().Name)
+		if soil ~= before then
+			local level = soilLevel()
+			-- "Your rice field" reads as "your rice field" inside a sentence.
+			local fieldName = string.gsub(options.displayName, "^Your ", "your ")
+			local message = if how == "Burned"
+				then string.format(
+					"Burning damaged the soil on %s: it is now %s. Rice will take %d s to grow and pay %d credits a row. Clear straw by hand to restore it.",
+					fieldName,
+					string.lower(level.Name),
+					level.GrowSeconds,
+					level.GrainCredits
+				)
+				else string.format(
+					"Clearing the straw by hand let the soil on %s recover: it is now %s.",
+					fieldName,
+					string.lower(level.Name)
+				)
+			local told: { Player } = if triggeringPlayer
+				then { triggeringPlayer }
+				elseif options.owner then { options.owner }
+				else Players:GetPlayers()
+			for _, player in told do
+				notify(player, message)
 			end
 		end
 		local first = firstBatch
@@ -460,6 +510,8 @@ function PaddyField.new(options: Options): Handle
 		playerState:AdjustCredits(player, -planting.SeedCost, "Rice")
 		row.stage = "Growing"
 		row.plantedAt = now()
+		row.growSeconds = soilLevel().GrowSeconds
+		row.grain = soilLevel().GrainCredits
 		setLook(row, WIDE, 1, SEEDLING, Enum.Material.LeafyGrass)
 		refreshPrompts()
 		refreshBoard()
@@ -475,7 +527,7 @@ function PaddyField.new(options: Options): Handle
 		end
 		row.stage = "Stubble"
 		applyLook(row, STUBBLE_LOOK)
-		playerState:AdjustCredits(player, planting.GrainCredits, "Rice")
+		playerState:AdjustCredits(player, row.grain, "Rice")
 		-- Each row leaves one sheaf in the lane beside it; later batches shift the depth.
 		local lane = math.min(row.index, #rows - 1)
 		local pass = batch * 2 + (if row.index > #rows - 1 then 1 else 0)
@@ -544,18 +596,21 @@ function PaddyField.new(options: Options): Handle
 			bottom = bottom,
 			stage = startStage,
 			plantedAt = 0,
+			growSeconds = 0,
+			grain = 0,
 			prompt = prompt,
 		}
 		applyLook(row, if firstBatch then STUBBLE_LOOK else EMPTY_LOOK)
 		prompt.Triggered:Connect(function(player)
 			if row.stage == "Ripe" then
+				local grain = row.grain
 				local ok, reason = harvest(player, row)
 				notify(
 					player,
 					if ok
 						then string.format(
 							"Harvested a row: +%d credits of grain. Its straw is on the field.",
-							planting.GrainCredits
+							grain
 						)
 						else reason
 				)
@@ -592,7 +647,7 @@ function PaddyField.new(options: Options): Handle
 			local current = now()
 			for _, row in rows do
 				if row.stage == "Growing" then
-					local grown = math.clamp((current - row.plantedAt) / planting.GrowSeconds, 0, 1)
+					local grown = math.clamp((current - row.plantedAt) / row.growSeconds, 0, 1)
 					if grown >= 1 then
 						row.stage = "Ripe"
 						applyLook(row, RIPE_LOOK)
@@ -663,6 +718,23 @@ function PaddyField.new(options: Options): Handle
 				return false, "No ripe rows."
 			end
 			return harvest(player, row)
+		end,
+		TakeSheaf = function(): boolean
+			if clearing or #sheaves == 0 then
+				return false
+			end
+			local sheaf = table.remove(sheaves) :: Model
+			sheaf:Destroy()
+			if options.onSheafCollected then
+				options.onSheafCollected(firstBatch)
+			end
+			if #sheaves == 0 then
+				fieldCleared("Collected", nil)
+			else
+				refreshPrompts()
+				refreshBoard()
+			end
+			return true
 		end,
 	}
 	handles[model] = handle

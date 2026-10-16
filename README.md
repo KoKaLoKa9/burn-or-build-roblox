@@ -14,6 +14,8 @@ Week 4 P0 season loop, forecast weather, and the end of season results, built ag
 - Week 5 so far: Shift to run, the first batch tutorial checklist, walk-up sheaves on Farm B and Farm C, and a generated landscape (`EnvironmentService` and `Flora`): terrain grass, green and flooded paddies, the canal, northern mountains, a pine hill, laterite farm tracks, sugar palms and shade trees, field huts, power poles, and late-afternoon light. It is rebuilt from code on every Play, so it does not appear in edit mode.
 - Week 5 replanting: once your field is clear (collected or burned), plant its nine rows one by one. Rice grows in two minutes, harvest pays grain and leaves a new batch of straw, and the burn or build choice comes back with every batch. Only the first batch has the deadline and counts as the field result in the season report; grain and seed show as "Rice harvest" in the profit causes.
 - Week 5 paddy plots: three lots between the main road and the factory (`GameConfig.Plots`) are for sale at 300 credits each. Hold E at a lot's FOR SALE sign to buy it; it becomes a five-row paddy that runs the same cycle as your field (`PaddyField`), and only the buyer may plant, harvest, or burn it. Plots count as investment next to machines and belts in the season report.
+- Balance pass (after Week 5): soil health. Burning a paddy drops its soil one level (Good, Fair, Poor), so rice grows slower (120, 145, 170 s) and pays less grain (30, 24, 18 credits a row). Each clean clear, by hand or by baler, restores one level. Until now repeat burns had no in-game cost; trust and exposure only showed in the season report.
+- Week 6 research and tier 2: build one cooperative office and hire up to three engineers with T there (fee 200 x (1.5 - trust / 100), wage 5 credits per engineer every 30 s). Engineers earn a research point every 15 s. Press E at the office to open the research panel and pick a project: farm machines (the transplanter and combine are now research unlocks), straw baler, market stall, then the pyrolysis kiln and mushroom house. The baler stands beside a paddy and gathers its straw into bales (take them with E); the kiln turns 3 shredded straw into a biochar sack (syngas is flared for now); the mushroom house turns 2 wet straw into a basket of straw mushrooms; the placeable market stall buys pellets (135), biochar (240), and mushrooms (180).
 - Week 5 farm machines, the first automation tier for rice: the rice transplanter (250 credits) plants one empty row every 4 s at the usual seed cost, and the combine harvester (400 credits) harvests one ripe row every 5 s for the usual grain. Both stand on the ground beside a paddy (Farm A or a plot you own, within 12 studs of its edge, never on the field or its sign) and work that paddy for their owner through `PaddyField`. Harvested rows still leave straw, and the transplanter waits until it is cleared, so the burn or build choice stays with the player. F pauses them; the Delete tool refunds them like any machine. They use part-built placeholder art (`FarmMachineArt`) until Blender models are imported.
 
 ### Week 4 scope
@@ -84,6 +86,8 @@ Balance assumptions not fixed by spec v0.2 live in `CommitmentDefinitions.luau`:
 | H (hold) | Allow burning on your own field |
 | B | Open the inventory: drag items onto hotbar slots 1 to 9, or drag a hotbar item off to put it away |
 | Shift (hold) | Run, about 2.5 times walking speed |
+| E / T at the office | Open the research panel / hire an engineer (the fee drops as farmer trust rises) |
+| E at a straw baler | Take the straw it has baled, then carry it to the collection point |
 | C | Open or close the Stats panel (season clock, forecast, crates, wind, trust, exposure, farm contracts). Credits and carried straw always show at the top left |
 | 1 to 5 | Select a machine (dryer, shredder, pellet mill, storage, truck terminal) |
 | 6 | Conveyor: click to lay a tile, or hold and drag to lay a line that turns with the drag (5 credits per tile) |
@@ -228,6 +232,17 @@ Start from a fresh Play session. Times are minutes since the server started. To 
 5. Once straw lies on the field the transplanter reads "Clear the straw first" and does not plant. Collect the sheaves (or burn with H): it starts planting again on its own.
 6. Press F on a machine to pause it (board reads "Paused") and again to resume. Delete it with X and confirm the refund.
 7. Buy a plot and place a transplanter beside it. In a two-player test, the other player's ghost beside your plot reads "This paddy belongs to another player." and the server refuses it.
+
+### Week 6 research and tier 2 Studio play test
+
+1. Press 9 and place the cooperative office on the factory plot (300 credits). Try a second one: "You already have a cooperative office."
+2. Stand at the office: E reads "Research", T reads "Hire engineer (200 credits)". Hire three; a fourth says the office has room for 3. Credits drop by 5 per engineer every 30 s.
+3. Press E: the panel lists five projects, with the kiln and mushroom house showing "NEEDS MARKET STALL". Start Market stall; with three engineers it finishes in about 15 s and the kiln and mushroom house open up. Points earned while no project runs are kept for the next one.
+4. Open the inventory (B): the transplanter, combine, and baler show LOCKED until Farm machines and Straw baler are researched; their tooltips name the project. A locked ghost reads "Research ... at the cooperative office first."
+5. Place a mushroom house and a market stall. The stall's board lists its three prices and it has a single IN port. Belt the collection point to the mushroom house and the house to the stall: each basket sells for 180.
+6. Belt a shredder into a pyrolysis kiln and the kiln into the stall: a warm flare rises from the chimney while it works, and each biochar sack sells for 240.
+7. Place a straw baler beside a paddy with straw on it: it lifts one sheaf every 3 s ("Baled straw: n/12") and stacks bales beside itself. Press E at the baler to carry the straw. When it empties the field, the soil recovers one level.
+8. Burn a paddy with H: the notice says the soil is now Fair, and the board shows "Soil fair". Collect the next batch by hand to restore it.
 
 ## Publication
 

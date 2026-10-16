@@ -128,6 +128,9 @@ local function acceptsType(node: Node, item: string): boolean
 		return table.find(node.definition.StoresItems, item) ~= nil
 	elseif node.kind == "Terminal" then
 		return false
+	elseif node.kind == "Sink" and node.definition.Prices then
+		-- A market buys every product it lists a price for.
+		return node.definition.Prices[item] ~= nil
 	end
 	return acceptedItem(node) == item
 end
@@ -135,6 +138,13 @@ end
 local function requiredItemText(node: Node): string
 	if node.kind == "Storage" then
 		return storageItem(node) or "straw"
+	elseif node.kind == "Sink" and node.definition.Prices then
+		local items = {}
+		for item in node.definition.Prices do
+			table.insert(items, item)
+		end
+		table.sort(items)
+		return table.concat(items, " or ")
 	end
 	return tostring(acceptedItem(node))
 end
@@ -372,7 +382,9 @@ function ProductionLine:_deliver(node: Node, unit: Unit)
 			nodeId = node.id,
 			owner = unit.owner,
 			unitId = unit.id,
-			amount = node.definition.SalePrice,
+			amount = if node.definition.Prices
+				then node.definition.Prices[unit.item] or 0
+				else node.definition.SalePrice,
 			item = unit.item,
 		})
 	elseif node.kind == "Source" or node.kind == "Storage" then

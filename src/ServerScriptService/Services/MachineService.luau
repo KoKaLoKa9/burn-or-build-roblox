@@ -16,6 +16,7 @@ local PipeRoute = require(Shared:WaitForChild("PipeRoute"))
 local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
 local ConveyorTile = require(Shared:WaitForChild("ConveyorTile"))
 local MachineDefinitions = require(Shared:WaitForChild("MachineDefinitions"))
+local ResearchDefinitions = require(Shared:WaitForChild("ResearchDefinitions"))
 local PlacementRules = require(Shared:WaitForChild("PlacementRules"))
 local PaddySites = require(Shared:WaitForChild("PaddySites"))
 
@@ -395,12 +396,23 @@ local EXHAUST_RATE: { [string]: number } = {
 
 local function createExhaust(body: BasePart, definition: any): ParticleEmitter?
 	local offset = definition.ExhaustOffset
-	if offset == nil then
+	local position: Vector3? = if offset
+		then Vector3.new(offset.X, offset.Y - body.Size.Y / 2, offset.Z)
+		else nil
+	if position == nil and definition.ExhaustPart and body.Parent then
+		-- No fixed offset: rise from the top of the named part of the imported model.
+		local stack = body.Parent:FindFirstChild(definition.ExhaustPart, true)
+		if stack and stack:IsA("BasePart") then
+			position =
+				body.CFrame:PointToObjectSpace(stack.Position + Vector3.new(0, stack.Size.Y / 2, 0))
+		end
+	end
+	if position == nil then
 		return nil
 	end
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "Exhaust"
-	attachment.Position = Vector3.new(offset.X, offset.Y - body.Size.Y / 2, offset.Z)
+	attachment.Position = position
 	attachment.Parent = body
 
 	local emitter = Instance.new("ParticleEmitter")
@@ -426,6 +438,11 @@ local function createExhaust(body: BasePart, definition: any): ParticleEmitter?
 	emitter.Acceleration = Vector3.new(1.2, 0.6, 0)
 	emitter.EmissionDirection = Enum.NormalId.Top
 	emitter.Rate = 0
+	if definition.Flare then
+		-- Syngas is flared off for now: a warm, smoky plume instead of white steam.
+		emitter.Color = ColorSequence.new(Color3.fromRGB(255, 170, 90), Color3.fromRGB(90, 84, 78))
+		emitter.LightEmission = 0.4
+	end
 	emitter.Parent = attachment
 	return emitter
 end
@@ -464,7 +481,14 @@ local function buildMachineModel(
 
 	local portHeight = -size.Y / 2 + 1.5
 	createPort(model, "InputPort", bodyCFrame * CFrame.new(-size.X / 2 - 1, portHeight, 0), "IN")
-	createPort(model, "OutputPort", bodyCFrame * CFrame.new(size.X / 2 + 1, portHeight, 0), "OUT")
+	if not definition.InputOnly then
+		createPort(
+			model,
+			"OutputPort",
+			bodyCFrame * CFrame.new(size.X / 2 + 1, portHeight, 0),
+			"OUT"
+		)
+	end
 	return model, body
 end
 
@@ -489,6 +513,27 @@ local function placeMachine(
 		return false, "Invalid placement request."
 	end
 	local rotationSteps = math.floor(rotation) % 4
+	-- Week 6: research unlocks, and a cap on how many of a machine one player may own.
+	if definition.Research and player:GetAttribute("Research_" .. definition.Research) ~= true then
+		local project = ResearchDefinitions.Projects[definition.Research]
+		return false,
+			string.format(
+				"Research %s at the cooperative office first.",
+				if project then string.lower(project.DisplayName) else definition.Research
+			)
+	end
+	if definition.MaxPerPlayer then
+		local owned = 0
+		for _, record in records do
+			if record.owner == player and record.node.definitionId == definitionId then
+				owned += 1
+			end
+		end
+		if owned >= definition.MaxPerPlayer then
+			return false,
+				string.format("You already have a %s.", string.lower(definition.DisplayName))
+		end
+	end
 
 	local blockerList = {}
 	for _, rect in blockers do
@@ -1049,6 +1094,19 @@ local function describe(record: MachineRecord): string
 			#node.output,
 			definition.OutputCapacity
 		)
+	elseif node.kind == "Sink" and definition.Placeable then
+		-- A market stall lists what it buys.
+		local prices = {}
+		for item, price in definition.Prices do
+			table.insert(prices, string.format("%s %d", itemName(item), price))
+		end
+		table.sort(prices)
+		return string.format(
+			"%s\n%s\nSold: %d",
+			name,
+			table.concat(prices, "\n"),
+			node.completedCycles
+		)
 	elseif node.kind == "Sink" then
 		return string.format(
 			"%s\n%d credits per crate\nCrates sold: %d",
@@ -1143,7 +1201,10 @@ local function handleEvents(events: { any })
 					"First crate sold: +150 credits. Covered storage [4] and the truck terminal [5] are unlocked. Refunds are now 70 percent."
 				)
 			else
-				notify(owner, string.format("Pellet crate sold: +%d credits.", event.amount))
+				notify(
+					owner,
+					string.format("%s sold: +%d credits.", itemName(event.item), event.amount)
+				)
 			end
 		elseif event.type == "OperatingCost" then
 			playerState:AdjustCredits(owner, -event.amount, "Processing")

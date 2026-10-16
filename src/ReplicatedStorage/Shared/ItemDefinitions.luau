@@ -17,4 +17,13 @@ return {
 		DisplayName = "Pellet crate",
 		Color = Color3.fromRGB(112, 77, 36),
 	},
+	-- Week 6 tier 2 products.
+	Biochar = {
+		DisplayName = "Biochar sack",
+		Color = Color3.fromRGB(40, 38, 36),
+	},
+	Mushrooms = {
+		DisplayName = "Straw mushroom basket",
+		Color = Color3.fromRGB(236, 226, 204),
+	},
 }

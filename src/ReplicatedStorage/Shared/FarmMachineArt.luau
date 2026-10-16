@@ -1,6 +1,7 @@
 --!strict
 
--- Part-built stand-in art for the farm machines until Blender models are imported. MachineArt
+-- Part-built stand-in art for the farm machines and the market stall until Blender models are
+-- imported. MachineArt
 -- falls back to these, so placed machines, the build ghost, and the hotbar previews all share them.
 -- Each model's pivot is its bottom center and its front (header, hood) faces +X, the side the
 -- build mode rotation hint calls "output faces".
@@ -293,9 +294,99 @@ local function buildCombine(model: Model)
 		0.35
 end
 
+-- Market stall (12 x 8 x 10): a wooden counter under a striped awning, with a pellet crate, a
+-- biochar sack, and a mushroom basket on show. The IN side is -X.
+local function buildMarketStall(model: Model)
+	local wood = Color3.fromRGB(150, 108, 70)
+	local orange = Color3.fromRGB(226, 120, 58)
+	local cream = Color3.fromRGB(244, 232, 206)
+	block(
+		model,
+		"Counter",
+		Vector3.new(8, 3, 8),
+		CFrame.new(0.5, 1.5, 0),
+		wood,
+		Enum.Material.WoodPlanks
+	)
+	block(
+		model,
+		"CounterTop",
+		Vector3.new(8.6, 0.4, 8.6),
+		CFrame.new(0.5, 3.2, 0),
+		TEAL,
+		Enum.Material.SmoothPlastic
+	)
+	for _, corner in { { -5, -4.4 }, { -5, 4.4 }, { 5, -4.4 }, { 5, 4.4 } } do
+		block(
+			model,
+			"Post",
+			Vector3.new(0.4, 7.2, 0.4),
+			CFrame.new(corner[1], 3.6, corner[2]),
+			wood,
+			Enum.Material.Wood
+		)
+	end
+	for index = 0, 5 do
+		block(
+			model,
+			"Awning",
+			Vector3.new(11.6, 0.25, 1.75),
+			CFrame.new(0, 7.4, -4.4 + 0.875 + index * 1.75) * CFrame.Angles(0, 0, math.rad(-8)),
+			if index % 2 == 0 then orange else cream,
+			Enum.Material.Fabric
+		)
+	end
+	block(
+		model,
+		"Sign",
+		Vector3.new(0.3, 1.6, 6),
+		CFrame.new(5.6, 6.2, 0),
+		TEAL_DARK,
+		Enum.Material.SmoothPlastic
+	)
+	block(
+		model,
+		"Crate",
+		Vector3.new(1.8, 1.4, 1.8),
+		CFrame.new(1.5, 4.1, -2.4),
+		Color3.fromRGB(112, 77, 36),
+		Enum.Material.WoodPlanks
+	)
+	block(
+		model,
+		"Biochar",
+		Vector3.new(1.6, 1.8, 1.6),
+		CFrame.new(1.5, 4.3, 0),
+		Color3.fromRGB(40, 38, 36),
+		Enum.Material.Fabric,
+		Enum.PartType.Ball
+	)
+	block(
+		model,
+		"Basket",
+		Vector3.new(1, 2, 2),
+		CFrame.new(1.5, 3.9, 2.4) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(176, 132, 80),
+		Enum.Material.Fabric,
+		Enum.PartType.Cylinder
+	)
+	for index = 1, 3 do
+		block(
+			model,
+			"Mushroom",
+			Vector3.new(0.7, 0.7, 0.7),
+			CFrame.new(1.2 + (index % 2) * 0.6, 4.5, 2 + index * 0.25),
+			cream,
+			Enum.Material.SmoothPlastic,
+			Enum.PartType.Ball
+		)
+	end
+end
+
 local BUILDERS: { [string]: (Model) -> () } = {
 	Transplanter = buildTransplanter,
 	Combine = buildCombine,
+	MarketStall = buildMarketStall,
 }
 
 function FarmMachineArt.Has(definitionId: string): boolean

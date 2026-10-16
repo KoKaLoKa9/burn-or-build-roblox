@@ -9,6 +9,10 @@
 -- the site, PaddyReach is the widest gap allowed between the machine and the paddy edge, and
 -- FarmAction is what the machine does to that paddy's rows every WorkSeconds: Plant (paying the
 -- usual seed cost) or Harvest (earning the usual grain). Balance assumptions, tune in playtests.
+-- Week 6: Research names the ResearchDefinitions project that unlocks a machine. MaxPerPlayer caps
+-- how many one player may own. A Sink with Prices buys every listed item at its own price, and
+-- InputOnly gives a placed machine an IN port but no OUT port. ExhaustPart names the part of the
+-- imported model that steam or flare rises from, when there is no fixed ExhaustOffset.
 return {
 	CollectionPoint = {
 		DisplayName = "Straw collection point",
@@ -98,6 +102,7 @@ return {
 		PaddyReach = 12,
 		FarmAction = "Plant",
 		WorkSeconds = 4,
+		Research = "FarmMachines",
 		Cost = 250,
 		Size = { X = 10, Y = 6, Z = 8 },
 		Color = { 46, 140, 124 },
@@ -111,9 +116,89 @@ return {
 		PaddyReach = 12,
 		FarmAction = "Harvest",
 		WorkSeconds = 5,
+		Research = "FarmMachines",
 		Cost = 400,
 		Size = { X = 14, Y = 9, Z = 10 },
 		Color = { 214, 64, 52 },
+	},
+	-- Straw baler: stands beside a paddy and gathers the straw lying on it into bales the player
+	-- takes away, so a field is cleared without fire (a clean clear restores soil).
+	Baler = {
+		DisplayName = "Straw baler",
+		Kind = "Farm",
+		Placeable = true,
+		NoPorts = true,
+		PlaceNear = "Paddy",
+		PaddyReach = 12,
+		FarmAction = "Bale",
+		WorkSeconds = 3,
+		-- Bundles of straw it holds before someone takes them.
+		Capacity = 12,
+		Research = "Baler",
+		Cost = 300,
+		Size = { X = 10, Y = 6, Z = 8 },
+		Color = { 46, 140, 124 },
+	},
+	-- Cooperative office: hire engineers here; they earn research points (ResearchService).
+	CooperativeOffice = {
+		DisplayName = "Cooperative office",
+		Kind = "Office",
+		Placeable = true,
+		NoPorts = true,
+		MaxPerPlayer = 1,
+		Cost = 300,
+		Size = { X = 16, Y = 10, Z = 14 },
+		Color = { 200, 180, 140 },
+	},
+	-- Tier 2 (soil): pyrolysis turns shredded straw into biochar. The syngas by-product is flared
+	-- for now; gas pipes can carry it to a dryer later (docs/MachinePorts.md).
+	PyrolysisKiln = {
+		DisplayName = "Pyrolysis kiln",
+		Kind = "Processor",
+		Placeable = true,
+		Research = "Kiln",
+		Cost = 450,
+		InputItem = "ShreddedStraw",
+		OutputItem = "Biochar",
+		InputPerCycle = 3,
+		OutputPerCycle = 1,
+		CycleSeconds = 30,
+		InputCapacity = 6,
+		OutputCapacity = 2,
+		OperatingCostPerCycle = 10,
+		Size = { X = 18, Y = 14, Z = 16 },
+		ExhaustPart = "PK_ChimneyCap",
+		Flare = true,
+		Color = { 60, 70, 68 },
+	},
+	-- Tier 2 (food): straw mushrooms grow on soaked straw, so wet straw goes straight in.
+	MushroomHouse = {
+		DisplayName = "Mushroom house",
+		Kind = "Processor",
+		Placeable = true,
+		Research = "Mushroom",
+		Cost = 400,
+		InputItem = "WetStraw",
+		OutputItem = "Mushrooms",
+		InputPerCycle = 2,
+		OutputPerCycle = 1,
+		CycleSeconds = 45,
+		InputCapacity = 4,
+		OutputCapacity = 2,
+		Size = { X = 20, Y = 10, Z = 14 },
+		Color = { 120, 150, 110 },
+	},
+	-- A small placeable buyer for every product, so each line can end at its own stall.
+	MarketStall = {
+		DisplayName = "Market stall",
+		Kind = "Sink",
+		Placeable = true,
+		InputOnly = true,
+		Research = "Market",
+		Cost = 200,
+		Prices = { PelletCrate = 135, Biochar = 240, Mushrooms = 180 },
+		Size = { X = 12, Y = 8, Z = 10 },
+		Color = { 214, 120, 60 },
 	},
 	BuyerDepot = {
 		DisplayName = "Buyer depot",
@@ -121,5 +206,6 @@ return {
 		Placeable = false,
 		AcceptsItem = "PelletCrate",
 		SalePrice = 150,
+		Prices = { PelletCrate = 150 },
 	},
 }

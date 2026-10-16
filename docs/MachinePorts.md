@@ -1,6 +1,6 @@
 # Machine ports and tier 2 machines (design draft for spec v0.3)
 
-Status: design only. The models in `art/` already show these ports. The simulation still supports one input and one output per machine; multi-port support is planned for Week 6, after the Week 4 season loop lands.
+Status: partly built. Week 6 shipped the pyrolysis kiln, mushroom house, straw baler, and market stall with one input and one output each, so they run on the current simulation: the kiln flares its syngas instead of piping it, the mushroom house takes wet straw (soaked straw is how mushrooms are grown) instead of bales plus water, and the baler stands beside a paddy and hands its bales to the player. True multi-port machines (the layouts below) remain the next simulation step.
 
 ## Port rules
 

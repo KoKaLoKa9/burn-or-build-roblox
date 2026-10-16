@@ -16,6 +16,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MachineDefinitions = require(Shared:WaitForChild("MachineDefinitions"))
+local ResearchDefinitions = require(Shared:WaitForChild("ResearchDefinitions"))
 local MachineArt = require(Shared:WaitForChild("MachineArt"))
 local PipeDefinitions = require(Shared:WaitForChild("PipeDefinitions"))
 local PipeRoute = require(Shared:WaitForChild("PipeRoute"))
@@ -57,7 +58,10 @@ local SLOT_KEYS = {
 -- Hotbar order: machines first, then transport. Each slot takes the next number key.
 local CATALOG = { "Dryer", "Shredder", "PelletMill", "CoveredStorage", "TruckTerminal" }
 -- Farm machines stand beside a paddy (Farm A or a bought plot) instead of on the factory floor.
-local FARM_CATALOG = { "Transplanter", "Combine" }
+local FARM_CATALOG = { "Transplanter", "Combine", "Baler" }
+-- Week 6: the office runs research; tier 2 machines unlock through it.
+local OFFICE_CATALOG = { "CooperativeOffice" }
+local TIER2_CATALOG = { "MarketStall", "PyrolysisKiln", "MushroomHouse" }
 
 type ItemInfo = { recipe: string, detail: string }
 local ITEM_INFO: { [string]: ItemInfo } = {
@@ -82,6 +86,26 @@ local ITEM_INFO: { [string]: ItemInfo } = {
 	Combine = {
 		recipe = "Harvests ripe paddy rows",
 		detail = "One row every 5 s for the usual grain, straw still lands on the field",
+	},
+	Baler = {
+		recipe = "Bales the straw lying on a paddy",
+		detail = "One sheaf every 3 s, no fire needed. Take the bales with E",
+	},
+	CooperativeOffice = {
+		recipe = "Hire engineers, earn research points",
+		detail = "One per player. Hire with T, pick a project with E",
+	},
+	MarketStall = {
+		recipe = "Buys pellets 135, biochar 240, mushrooms 180",
+		detail = "Place at the end of any line",
+	},
+	PyrolysisKiln = {
+		recipe = "3 Shredded  ->  1 Biochar sack",
+		detail = "One sack every 30 s, 10 credits running cost. Syngas is flared",
+	},
+	MushroomHouse = {
+		recipe = "2 Wet straw  ->  1 Mushroom basket",
+		detail = "One basket every 45 s. Soaked straw, no dryer needed",
 	},
 }
 local ROTATION_NAMES = { "east", "north", "west", "south" }
@@ -295,6 +319,21 @@ local function isUnlocked(): boolean
 	return player:GetAttribute("TutorialComplete") == true
 end
 
+-- The research project a machine still waits on, if any.
+local function researchNeeded(definition: any): string?
+	local projectId = definition.Research
+	if projectId == nil or player:GetAttribute("Research_" .. projectId) == true then
+		return nil
+	end
+	local project = ResearchDefinitions.Projects[projectId]
+	return if project then project.DisplayName else projectId
+end
+
+local function machineLocked(definition: any): boolean
+	return (definition.UnlockAfterFirstSale == true and not isUnlocked())
+		or researchNeeded(definition) ~= nil
+end
+
 local function credits(): number
 	local value = player:GetAttribute("Credits")
 	return if typeof(value) == "number" then value else 0
@@ -343,6 +382,15 @@ for _, definitionId in CATALOG do
 		category = "Machines",
 	})
 end
+for _, definitionId in OFFICE_CATALOG do
+	addItem({
+		key = "Machine:" .. definitionId,
+		kind = "Machine",
+		id = definitionId,
+		name = MachineDefinitions[definitionId].DisplayName,
+		category = "Machines",
+	})
+end
 for _, definitionId in FARM_CATALOG do
 	addItem({
 		key = "Machine:" .. definitionId,
@@ -352,6 +400,15 @@ for _, definitionId in FARM_CATALOG do
 		category = "Farm",
 	})
 end
+for _, definitionId in TIER2_CATALOG do
+	addItem({
+		key = "Machine:" .. definitionId,
+		kind = "Machine",
+		id = definitionId,
+		name = MachineDefinitions[definitionId].DisplayName,
+		category = "Research",
+	})
+end
 for _, pipeId in PipeDefinitions.Order do
 	addItem({
 		key = "Transport:" .. pipeId,
@@ -359,31 +416,6 @@ for _, pipeId in PipeDefinitions.Order do
 		id = pipeId,
 		name = PipeDefinitions.Types[pipeId].DisplayName,
 		category = "Transport",
-	})
-end
-for _, future in
-	{
-		{ "Baler", "Straw baler", "Picks up loose straw from a field and packs it into bales" },
-		{
-			"PyrolysisKiln",
-			"Pyrolysis kiln",
-			"Shredded straw into biochar, with syngas as a by-product",
-		},
-		{ "MushroomHouse", "Mushroom house", "Straw bales and water grow straw mushrooms" },
-		{
-			"CooperativeOffice",
-			"Cooperative office",
-			"Hire engineers here to research new machines",
-		},
-	}
-do
-	addItem({
-		key = "Future:" .. future[1],
-		kind = "Future",
-		id = future[1],
-		name = future[2],
-		category = "Research",
-		blurb = future[3],
 	})
 end
 
@@ -398,7 +430,8 @@ local hotbarItems: { string } = {
 	"Transport:Item",
 	"Machine:Transplanter",
 	"Machine:Combine",
-	"",
+	-- The office is where research starts, so it gets the last key.
+	"Machine:CooperativeOffice",
 }
 
 type Slot = {
@@ -833,7 +866,11 @@ local function showTooltip(slot: Slot?)
 		tooltipName.Text = definition.DisplayName
 		tooltipRecipe.Text = info.recipe
 		tooltipDetail.Text = info.detail
-		if definition.UnlockAfterFirstSale and not isUnlocked() then
+		local research = researchNeeded(definition)
+		if research then
+			tooltipStatus.Text = string.format("Research %s at the office", string.lower(research))
+			tooltipStatus.TextColor3 = Colors.Muted
+		elseif definition.UnlockAfterFirstSale and not isUnlocked() then
 			tooltipStatus.Text = "Unlocks after your first pellet sale"
 			tooltipStatus.TextColor3 = Colors.Muted
 		elseif credits() < definition.Cost then
@@ -1009,7 +1046,6 @@ local function isSelected(slot: Slot): boolean
 end
 
 local function refreshPanel()
-	local unlocked = isUnlocked()
 	local balance = credits()
 	for _, slot in slots do
 		local selected = isSelected(slot)
@@ -1020,7 +1056,7 @@ local function refreshPanel()
 			locked = true
 		elseif slot.kind == "Machine" then
 			local definition = MachineDefinitions[slot.id]
-			locked = definition.UnlockAfterFirstSale == true and not unlocked
+			locked = machineLocked(definition)
 			if slot.cost then
 				slot.cost.TextColor3 = if balance < definition.Cost
 					then Colors.Danger
@@ -1278,7 +1314,7 @@ local sectionGrids: { [string]: Frame } = {
 	Machines = createSection(10, "Machines"),
 	Farm = createSection(15, "Farm machines"),
 	Transport = createSection(20, "Transport"),
-	Research = createSection(30, "Research"),
+	Research = createSection(30, "Tier 2 (research)"),
 }
 
 for order, item in ITEMS do
@@ -1345,18 +1381,13 @@ for _, descendant in inventory:GetDescendants() do
 end
 
 local function refreshCards()
-	local unlocked = isUnlocked()
 	for _, card in cards do
 		local index = table.find(hotbarItems, card.item.key)
 		card.badge.Visible = index ~= nil
 		card.badge.Text = if index then tostring(index) else ""
 		local locked = card.item.kind == "Future"
 			or (card.item.kind == "Transport" and not PipeDefinitions.Types[card.item.id].Ready)
-			or (
-				card.item.kind == "Machine"
-				and MachineDefinitions[card.item.id].UnlockAfterFirstSale == true
-				and not unlocked
-			)
+			or (card.item.kind == "Machine" and machineLocked(MachineDefinitions[card.item.id]))
 		card.lockOverlay.Visible = locked
 	end
 end
@@ -1921,6 +1952,12 @@ RunService.RenderStepped:Connect(function(deltaTime: number)
 			paddies = paddies,
 		}
 	)
+	local research = researchNeeded(definition)
+	if research then
+		valid, reason =
+			false,
+			string.format("Research %s at the cooperative office first.", string.lower(research))
+	end
 	ghostValid = valid
 	-- Spec 3.2: green means valid, red means invalid, and the reason is always shown as text.
 	tintGhost(if valid then VALID_COLOR else INVALID_COLOR)
@@ -2073,5 +2110,12 @@ for _, attribute in { "TutorialComplete", "Credits" } do
 		end
 	end)
 end
+-- A finished research project unlocks machines on the hotbar and in the inventory.
+player.AttributeChanged:Connect(function(attribute)
+	if string.sub(attribute, 1, 9) == "Research_" then
+		refreshPanel()
+		refreshCards()
+	end
+end)
 
 refreshPanel()
