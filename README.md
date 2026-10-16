@@ -12,6 +12,8 @@ Week 4 P0 season loop, forecast weather, and the end of season results, built ag
 - Week 3 adds Farm B and Farm C commitments, the truck route terminal, covered buffer storage, staged unlocks, and burn source records.
 - Week 4 adds the 20 minute season clock with the five phases of spec 2.3, one forecast weather event in the stress phase, and the result screen. The Week 2 and Week 3 lines still need their Studio play tests; run all three checklists below.
 - Week 5 so far: Shift to run, the first batch tutorial checklist, walk-up sheaves on Farm B and Farm C, and a generated landscape (`EnvironmentService` and `Flora`): terrain grass, green and flooded paddies, the canal, northern mountains, a pine hill, laterite farm tracks, sugar palms and shade trees, field huts, power poles, and late-afternoon light. It is rebuilt from code on every Play, so it does not appear in edit mode.
+- Week 5 replanting: once your field is clear (collected or burned), plant its nine rows one by one. Rice grows in two minutes, harvest pays grain and leaves a new batch of straw, and the burn or build choice comes back with every batch. Only the first batch has the deadline and counts as the field result in the season report; grain and seed show as "Rice harvest" in the profit causes.
+- Week 5 paddy plots: three lots between the main road and the factory (`GameConfig.Plots`) are for sale at 300 credits each. Hold E at a lot's FOR SALE sign to buy it; it becomes a five-row paddy that runs the same cycle as your field (`PaddyField`), and only the buyer may plant, harvest, or burn it. Plots count as investment next to machines and belts in the season report.
 
 ### Week 4 scope
 
@@ -77,7 +79,7 @@ Balance assumptions not fixed by spec v0.2 live in `CommitmentDefinitions.luau`:
 
 | Key | Action |
 | --- | --- |
-| E | Pick up a straw sheaf in your field, or deposit carried straw at the covered collection point |
+| E | Pick up a straw sheaf, deposit carried straw at the covered collection point, or (hold, at a row end of your field) plant rice for 5 credits and harvest ripe rice for 30 credits of grain |
 | H (hold) | Allow burning on your own field |
 | B | Open the inventory: drag items onto hotbar slots 1 to 9, or drag a hotbar item off to put it away |
 | Shift (hold) | Run, about 2.5 times walking speed |

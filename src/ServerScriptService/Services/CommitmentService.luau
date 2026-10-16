@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
 
+local FarmBoard = require(script.Parent:WaitForChild("FarmBoard"))
 local StrawSheaf = require(script.Parent:WaitForChild("StrawSheaf"))
 
 local Simulation = script.Parent.Parent:WaitForChild("Simulation")
@@ -21,7 +22,7 @@ local UPDATE_SECONDS = 0.5
 type FarmView = {
 	model: Model,
 	burnPoint: BasePart,
-	label: TextLabel,
+	board: Board,
 	acceptPrompt: ProximityPrompt,
 	rejectPrompt: ProximityPrompt,
 	extendPrompt: ProximityPrompt,
@@ -44,9 +45,9 @@ local STATE_TEXT: { [string]: string } = {
 	Rejected = "REJECTED",
 	InProgress = "IN PROGRESS",
 	Completed = "COMPLETED",
-	Missed = "MISSED, BURNED",
+	Missed = "MISSED",
 	Extended = "EXTENDED",
-	Burned = "BURNED, NO PROMISE",
+	Burned = "BURNED",
 }
 
 local function now(): number
@@ -89,42 +90,19 @@ local function createPrompt(
 	return prompt
 end
 
-local function createStatusLabel(parent: BasePart): TextLabel
-	local existing = parent:FindFirstChild("CommitmentStatus")
-	if existing then
-		existing:Destroy()
-	end
-	-- The graybox label said FUTURE CONTRACT; the live status replaces it.
-	local mapLabel = parent:FindFirstChild("MapLabel")
-	if mapLabel and mapLabel:IsA("BillboardGui") then
-		mapLabel.Enabled = false
-	end
+type Board = FarmBoard.Board
 
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "CommitmentStatus"
-	billboard.Size = UDim2.fromOffset(300, 120)
-	billboard.StudsOffset = Vector3.new(0, 9, 0)
-	billboard.AlwaysOnTop = true
-	billboard.MaxDistance = 220
-	billboard.Parent = parent
-
-	local label = Instance.new("TextLabel")
-	label.Name = "Label"
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundColor3 = Color3.fromRGB(20, 29, 25)
-	label.BackgroundTransparency = 0.12
-	label.BorderSizePixel = 0
-	label.Font = Enum.Font.GothamBold
-	label.TextColor3 = Color3.fromRGB(247, 241, 220)
-	label.TextScaled = true
-	label.TextWrapped = true
-	label.Parent = billboard
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
-	corner.Parent = label
-	return label
-end
+local MUTED = FarmBoard.Colors.Muted
+local STATE_COLORS: { [string]: Color3 } = {
+	Available = FarmBoard.Colors.Teal,
+	Accepted = FarmBoard.Colors.Gold,
+	InProgress = FarmBoard.Colors.Gold,
+	Extended = FarmBoard.Colors.Gold,
+	Completed = FarmBoard.Colors.Green,
+	Rejected = MUTED,
+	Missed = FarmBoard.Colors.Red,
+	Burned = FarmBoard.Colors.Red,
+}
 
 local function sheafPrompts(view: FarmView, enabled: boolean)
 	for _, sheaf in view.sheaves do
@@ -185,50 +163,37 @@ local function refreshFarm(farmId: string)
 	sheafPrompts(view, promised and open and farm.remaining > 0)
 	view.extendPrompt.Enabled = promised and open and not farm.extended
 
-	local lines = { string.format("%s: %s", definition.DisplayName, STATE_TEXT[state] or state) }
+	local board = view.board
+	board.pillText.Text = STATE_TEXT[state] or string.upper(state)
+	board.pill.BackgroundColor3 = STATE_COLORS[state] or MUTED
 	if open then
-		table.insert(
-			lines,
-			string.format(
-				"%d of %d bundles left | deadline in %s%s",
-				farm.remaining,
-				definition.Bundles,
-				formatClock(farm.deadlineAt - now()),
-				if farm.extended then " (extended)" else ""
-			)
-		)
-		table.insert(
-			lines,
-			string.format(
-				"Truck %d s each way, %d credits per trip | Burn risk %d exposure",
-				definition.TravelSeconds,
-				definition.RouteFee,
-				definition.BurnExposure
-			)
+		board.main.Text = string.format(
+			"%d/%d bundles  ·  %s",
+			farm.remaining,
+			definition.Bundles,
+			formatClock(farm.deadlineAt - now())
 		)
 		if world:GetAttribute("WeatherActive") == "Rain" and farm.remaining > 0 then
 			-- Spec 11.3: loose straw in the field stays wet while it rains.
-			table.insert(lines, "Raining: loose straw stays wet, dryers run slower")
-		end
-		if state == "Available" then
-			table.insert(lines, "[E] accept   hold [T] reject")
+			board.detail.Text = "Raining: straw stays wet"
 		elseif promised then
-			table.insert(
-				lines,
-				if farm.extended
-					then "Walk the field, [E] on a sheaf to pick it up"
-					else string.format(
-						"[E] on a sheaf to pick it up   hold [Y] extend (%d credits)",
-						CommitmentDefinitions.ExtensionFee
-					)
+			board.detail.Text = if farm.extended
+				then "Extended. Pick up sheaves or send a truck"
+				else "Pick up sheaves or send a truck"
+		else
+			board.detail.Text = string.format(
+				"Truck %d credits a trip  ·  Burn risk %d",
+				definition.RouteFee,
+				definition.BurnExposure
 			)
 		end
 	elseif state == "Completed" then
-		table.insert(lines, "All straw collected before the deadline")
+		board.main.Text = "Field cleared"
+		board.detail.Text = "All straw collected in time"
 	else
-		table.insert(lines, string.format("%d bundles burned", farm.burnedBundles))
+		board.main.Text = string.format("%d bundles burned", farm.burnedBundles)
+		board.detail.Text = "Smoke drifted downwind"
 	end
-	view.label.Text = table.concat(lines, "\n")
 end
 
 local function handleEvents(events: { any })
@@ -345,7 +310,7 @@ function CommitmentService:Initialize(
 		local view: FarmView = {
 			model = model,
 			burnPoint = burnPoint,
-			label = createStatusLabel(collectionPoint),
+			board = FarmBoard.Create(collectionPoint, "CommitmentStatus", definition.ShortName),
 			acceptPrompt = createPrompt(
 				collectionPoint,
 				"AcceptPrompt",

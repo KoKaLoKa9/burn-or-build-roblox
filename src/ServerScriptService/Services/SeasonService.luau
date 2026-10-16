@@ -11,6 +11,7 @@
 --     before the forecast at minute 13
 --   workspace.BurnOrBuildWorld:SetAttribute("EndSeasonNow", true) -- jump to the results
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -151,6 +152,12 @@ end
 
 -- Spec 12.5 soft failure: every field is settled and no straw is left to process.
 local function factoryIsIdle(): boolean
+	-- Rice growing or straw lying on any paddy keeps the season open.
+	for _, paddy in CollectionService:GetTagged("Paddy") do
+		if paddy:GetAttribute("CropActive") == true then
+			return false
+		end
+	end
 	local fields = gatherFields()
 	for _, field in fields do
 		if not field.resolved then

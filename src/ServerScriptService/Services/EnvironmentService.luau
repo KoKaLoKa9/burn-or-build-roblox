@@ -7,9 +7,11 @@
 -- and nothing is placed on a field, road, plot, building, or track.
 
 local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Flora = require(script.Parent:WaitForChild("Flora"))
+local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
 local EnvironmentService = {}
 
@@ -26,6 +28,9 @@ local PADDY_X, PADDY_Z = 48, 36
 local PATH_WIDTH = 12
 
 local terrain = Workspace.Terrain
+-- Terrain voxels are centred on multiples of 4, so a fill that stops at height h shows its
+-- surface at h + 2. Every fill stops 2 studs low to keep the ground level with the graybox (y 0).
+local SURFACE_LIFT = 2
 local rng = Random.new(SEED)
 local folder: Folder
 local blockers: { Rect } = {}
@@ -74,13 +79,23 @@ local function paint(area: Rect, material: Enum.Material)
 	if width <= 0 or depth <= 0 then
 		return
 	end
-	local cframe = CFrame.new((area.minX + area.maxX) / 2, -2, (area.minZ + area.maxZ) / 2)
+	local cframe =
+		CFrame.new((area.minX + area.maxX) / 2, -2 - SURFACE_LIFT, (area.minZ + area.maxZ) / 2)
 	local size = Vector3.new(width, 4, depth)
 	if material == Enum.Material.Water then
 		-- Water only fills empty space, so dig the ground out first.
 		terrain:FillBlock(cframe, size, Enum.Material.Air)
 	end
 	terrain:FillBlock(cframe, size, material)
+end
+
+-- Swaps the grass surface for another material without touching the ground height. A FillBlock
+-- here would raise the surface by half a voxel and bury the fields, floors, and roads.
+local function recolor(area: Rect, material: Enum.Material)
+	local region =
+		Region3.new(Vector3.new(area.minX, -8, area.minZ), Vector3.new(area.maxX, 4, area.maxZ))
+			:ExpandToGrid(4)
+	terrain:ReplaceMaterial(region, 4, Enum.Material.Grass, material)
 end
 
 local function findPart(world: Model, name: string): BasePart?
@@ -195,7 +210,11 @@ local function buildPaddies()
 				if material == Enum.Material.Water then
 					-- A muddy bed under shallow water, so flooded paddies read as water.
 					terrain:FillBlock(
-						CFrame.new((inner.minX + inner.maxX) / 2, -6, (inner.minZ + inner.maxZ) / 2),
+						CFrame.new(
+							(inner.minX + inner.maxX) / 2,
+							-6 - SURFACE_LIFT,
+							(inner.minZ + inner.maxZ) / 2
+						),
 						Vector3.new(inner.maxX - inner.minX, 4, inner.maxZ - inner.minZ),
 						Enum.Material.Mud
 					)
@@ -398,6 +417,22 @@ local function collectBlockers(world: Model, tracks: { Rect })
 	for _, track in tracks do
 		table.insert(blockers, grow(track, 3))
 	end
+	-- Paddy plot lots stay open, with room for their sign and burn spot.
+	local plots = GameConfig.Plots
+	for _, lot in plots.Lots do
+		table.insert(
+			blockers,
+			grow(
+				rect(
+					lot.X - plots.Width / 2,
+					lot.X + plots.Width / 2,
+					lot.Z - plots.Depth / 2,
+					lot.Z + plots.Depth / 2
+				),
+				10
+			)
+		)
+	end
 	-- Belts may run from the factory plot out to the buyer's dock, so keep that gap clear.
 	table.insert(blockers, BELT_CORRIDOR)
 end
@@ -409,17 +444,17 @@ local function paintUnderGameplay(world: Model, tracks: { Rect })
 			local zone = child:FindFirstChild("ExposureZone")
 			local area = if zone then footprintOf(zone) else nil
 			if area then
-				paint(area, Enum.Material.Sand)
+				recolor(area, Enum.Material.Sand)
 			end
 		elseif not SKIP_BLOCKERS[child.Name] then
 			local area = footprintOf(child)
 			if area and overlaps(area, DISTRICT) then
-				paint(area, Enum.Material.Mud)
+				recolor(area, Enum.Material.Mud)
 			end
 		end
 	end
 	for _, track in tracks do
-		paint(track, Enum.Material.Mud)
+		recolor(track, Enum.Material.Mud)
 	end
 	paint(CANAL, Enum.Material.Water)
 end
@@ -725,7 +760,11 @@ function EnvironmentService:Initialize(world: Model)
 	terrain:Clear()
 	setMaterialColors()
 	-- Plain grass runs far past the playable area so the horizon fades into haze, not into sky.
-	terrain:FillBlock(CFrame.new(0, -6, 0), Vector3.new(2400, 12, 2400), Enum.Material.Grass)
+	terrain:FillBlock(
+		CFrame.new(0, -6 - SURFACE_LIFT, 0),
+		Vector3.new(2400, 12, 2400),
+		Enum.Material.Grass
+	)
 	buildPaddies()
 	buildHills()
 

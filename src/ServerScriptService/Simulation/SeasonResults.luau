@@ -11,18 +11,19 @@ local SeasonResults = {}
 -- Ledger categories. Signed amounts: income is positive, costs are negative.
 SeasonResults.CategoryText = {
 	Sales = "Pellet sales",
+	Rice = "Rice harvest, grain minus seed",
 	Bonus = "Reliability bonuses",
 	Processing = "Processing costs",
 	RouteFee = "Truck route fees",
 	Extension = "Extension fees",
 	Utility = "Utility operating costs",
-	Construction = "Machines and belts bought",
+	Construction = "Machines, belts, and plots bought",
 	Refund = "Dismantle refunds",
 }
 
 -- Spec 12.3: season profit counts these. Construction is investment, shown separately.
 SeasonResults.ProfitCategories =
-	{ "Sales", "Bonus", "Processing", "RouteFee", "Extension", "Utility" }
+	{ "Sales", "Rice", "Bonus", "Processing", "RouteFee", "Extension", "Utility" }
 
 -- Burns that came from the player's own decision or broken promise.
 SeasonResults.PlayerCaused = {
