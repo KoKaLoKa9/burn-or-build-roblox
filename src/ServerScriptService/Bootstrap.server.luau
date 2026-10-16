@@ -14,6 +14,7 @@ local MachineService = require(Services:WaitForChild("MachineService"))
 local CommitmentService = require(Services:WaitForChild("CommitmentService"))
 local TruckService = require(Services:WaitForChild("TruckService"))
 local WorldLabelService = require(Services:WaitForChild("WorldLabelService"))
+local WorldArtService = require(Services:WaitForChild("WorldArtService"))
 local WeatherService = require(Services:WaitForChild("WeatherService"))
 local SeasonService = require(Services:WaitForChild("SeasonService"))
 
@@ -47,5 +48,6 @@ SeasonService:Initialize(
 	SmokeService,
 	WeatherService
 )
+WorldArtService:Initialize(world)
 -- Runs last so it restyles every label the other services created.
 WorldLabelService:Initialize(world)

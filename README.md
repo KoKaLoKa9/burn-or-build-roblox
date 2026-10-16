@@ -77,7 +77,8 @@ Balance assumptions not fixed by spec v0.2 live in `CommitmentDefinitions.luau`:
 | Key | Action |
 | --- | --- |
 | E | Pick up a straw sheaf in your field, or deposit carried straw at the covered collection point |
-| B (hold) | Allow burning on your own field |
+| H (hold) | Allow burning on your own field |
+| B | Open the inventory: drag items onto hotbar slots 1 to 9, or drag a hotbar item off to put it away |
 | 1 to 5 | Select a machine (dryer, shredder, pellet mill, storage, truck terminal) |
 | 6 | Conveyor: click to lay a tile, or hold and drag to lay a line that turns with the drag (5 credits per tile) |
 | 7, 8 | Fluid and gas pipes, reserved for the energy update |

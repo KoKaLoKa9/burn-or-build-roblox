@@ -122,7 +122,7 @@ function FieldService:Initialize(
 		"BurnPrompt",
 		"Allow burning",
 		"Immediate field clearing",
-		Enum.KeyCode.B,
+		Enum.KeyCode.H,
 		2
 	)
 	local statusLabel = createStatusGui(collectionPoint, fieldDefinition.DisplayName)

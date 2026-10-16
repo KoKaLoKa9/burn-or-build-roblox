@@ -7,6 +7,7 @@
 -- Belts are laid tile by tile: click to place one, or hold and drag to lay a line that turns
 -- wherever the drag turns. Machine IN/OUT ports only show while building, so the floor stays calm.
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -306,27 +307,110 @@ UITheme.padding(hotbar, 10, 10)
 local hotbarLayout = UITheme.list(hotbar, 8, true)
 hotbarLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 
-type Slot = {
+-- Everything the player can put on the hotbar. Research items are shown but locked until the
+-- tier system arrives.
+type Item = {
+	key: string,
 	kind: string,
 	id: string,
+	name: string,
+	category: string,
+	blurb: string?,
+}
+local ITEMS: { Item } = {}
+local ITEM_BY_KEY: { [string]: Item } = {}
+local function addItem(item: Item)
+	table.insert(ITEMS, item)
+	ITEM_BY_KEY[item.key] = item
+end
+for _, definitionId in CATALOG do
+	addItem({
+		key = "Machine:" .. definitionId,
+		kind = "Machine",
+		id = definitionId,
+		name = MachineDefinitions[definitionId].DisplayName,
+		category = "Machines",
+	})
+end
+for _, pipeId in PipeDefinitions.Order do
+	addItem({
+		key = "Transport:" .. pipeId,
+		kind = "Transport",
+		id = pipeId,
+		name = PipeDefinitions.Types[pipeId].DisplayName,
+		category = "Transport",
+	})
+end
+for _, future in
+	{
+		{ "Baler", "Straw baler", "Picks up loose straw from a field and packs it into bales" },
+		{
+			"PyrolysisKiln",
+			"Pyrolysis kiln",
+			"Shredded straw into biochar, with syngas as a by-product",
+		},
+		{ "MushroomHouse", "Mushroom house", "Straw bales and water grow straw mushrooms" },
+		{
+			"CooperativeOffice",
+			"Cooperative office",
+			"Hire engineers here to research new machines",
+		},
+	}
+do
+	addItem({
+		key = "Future:" .. future[1],
+		kind = "Future",
+		id = future[1],
+		name = future[2],
+		category = "Research",
+		blurb = future[3],
+	})
+end
+
+-- The player's own layout for keys 1 to 9. "" is an empty slot.
+local HOTBAR_SIZE = 9
+local hotbarItems: { string } = {
+	"Machine:Dryer",
+	"Machine:Shredder",
+	"Machine:PelletMill",
+	"Machine:CoveredStorage",
+	"Machine:TruckTerminal",
+	"Transport:Item",
+	"",
+	"",
+	"",
+}
+
+type Slot = {
+	index: number,
+	kind: string,
+	id: string,
+	itemKey: string,
 	button: TextButton,
 	stroke: UIStroke,
-	viewport: ViewportFrame,
-	camera: Camera,
+	content: Frame,
+	viewport: ViewportFrame?,
+	camera: Camera?,
 	focus: Vector3,
 	radius: number,
 	angle: number,
-	cost: TextLabel,
-	lockOverlay: Frame,
+	cost: TextLabel?,
+	lockOverlay: Frame?,
 }
 local slots: { Slot } = {}
 local hoveredSlot: Slot? = nil
 
-local function framePreview(slot: Slot)
+type Preview = { camera: Camera?, focus: Vector3, radius: number, angle: number }
+
+local function framePreview(preview: Preview)
+	local camera = preview.camera
+	if camera == nil then
+		return
+	end
 	-- A three-quarter view from the input side, like a product shot.
-	local direction = Vector3.new(-math.cos(slot.angle), 0.75, math.sin(slot.angle)).Unit
-	local distance = slot.radius / math.tan(math.rad(slot.camera.FieldOfView / 2)) * 0.92
-	slot.camera.CFrame = CFrame.lookAt(slot.focus + direction * distance, slot.focus)
+	local direction = Vector3.new(-math.cos(preview.angle), 0.75, math.sin(preview.angle)).Unit
+	local distance = preview.radius / math.tan(math.rad(camera.FieldOfView / 2)) * 0.92
+	camera.CFrame = CFrame.lookAt(preview.focus + direction * distance, preview.focus)
 end
 
 local function createViewport(
@@ -400,36 +484,43 @@ local function buildPipePreview(pipeId: string): Model
 	return model
 end
 
-local function createSlotShell(index: number, name: string): (TextButton, UIStroke)
-	local button = Instance.new("TextButton")
-	button.Name = name
-	button.Text = ""
-	button.AutoButtonColor = false
-	button.Size = UDim2.fromOffset(76, 76)
-	button.BackgroundColor3 = Colors.Raised
-	button.BackgroundTransparency = 0.1
-	button.BorderSizePixel = 0
-	button.LayoutOrder = index
-	button.Parent = hotbar
-	UITheme.corner(button, 12)
-	return button, UITheme.outline(button)
+local function previewModelFor(item: Item): Model
+	if item.kind == "Machine" then
+		return MachineArt.Build(item.id) or MachineArt.BuildPlaceholder(MachineDefinitions[item.id])
+	elseif item.kind == "Transport" then
+		return if item.id == "Item" then buildConveyorPreview() else buildPipePreview(item.id)
+	end
+	local art = MachineArt.Build(item.id)
+	if art then
+		return art
+	end
+	local fallback = Instance.new("Model")
+	local block = Instance.new("Part")
+	block.Size = Vector3.new(8, 6, 8)
+	block.Anchored = true
+	block.Parent = fallback
+	return fallback
 end
 
-local function decorateSlot(
-	button: TextButton,
-	index: number,
-	costText: string,
-	lockText: string
-): (TextLabel, Frame)
-	local keyCap = UITheme.keyCap(button, tostring(index))
-	keyCap.Position = UDim2.fromOffset(5, 5)
-	keyCap.Size = UDim2.fromOffset(0, 18)
-	keyCap.ZIndex = 3
-	keyCap.BackgroundTransparency = 0.1
+local function priceText(item: Item): string
+	if item.kind == "Machine" then
+		return UITheme.formatNumber(MachineDefinitions[item.id].Cost)
+	elseif item.kind == "Transport" then
+		return PipeDefinitions.Types[item.id].ShortName
+	end
+	-- Research items already say SOON on their cover.
+	return ""
+end
 
-	local cost = UITheme.text(button, {
+-- Fills a frame with an item's 3D preview, its price tag, and a lock cover.
+local function buildItemVisual(
+	parent: Frame,
+	item: Item
+): (ViewportFrame, Camera, Vector3, number, TextLabel, Frame)
+	local viewport, camera, focus, radius = createViewport(parent, previewModelFor(item))
+	local cost = UITheme.text(parent, {
 		name = "Cost",
-		text = costText,
+		text = priceText(item),
 		size = UDim2.new(1, -10, 0, 16),
 		font = Fonts.Heavy,
 		textSize = 13,
@@ -440,6 +531,11 @@ local function decorateSlot(
 	cost.ZIndex = 3
 	cost.TextStrokeTransparency = 0.4
 	cost.TextStrokeColor3 = Colors.Panel
+	if item.kind == "Transport" and item.id ~= "Item" then
+		cost.TextColor3 = Color3.fromRGB(table.unpack(PipeDefinitions.Types[item.id].Color))
+	elseif item.kind == "Future" then
+		cost.TextColor3 = Colors.Muted
+	end
 
 	local lockOverlay = Instance.new("Frame")
 	lockOverlay.Name = "Locked"
@@ -448,11 +544,11 @@ local function decorateSlot(
 	lockOverlay.BackgroundTransparency = 0.35
 	lockOverlay.ZIndex = 2
 	lockOverlay.Visible = false
-	lockOverlay.Parent = button
+	lockOverlay.Parent = parent
 	UITheme.corner(lockOverlay, 12)
 	UITheme.text(lockOverlay, {
 		name = "Label",
-		text = lockText,
+		text = if item.kind == "Machine" then "LOCKED" else "SOON",
 		size = UDim2.fromScale(1, 1),
 		font = Fonts.Heavy,
 		textSize = 12,
@@ -460,57 +556,27 @@ local function decorateSlot(
 		alignX = Enum.TextXAlignment.Center,
 	}).ZIndex =
 		2
-	return cost, lockOverlay
+	return viewport, camera, focus, radius, cost, lockOverlay
 end
 
-local function createMachineSlot(index: number, definitionId: string): Slot
-	local definition = MachineDefinitions[definitionId]
-	local button, stroke = createSlotShell(index, definitionId)
-	local model = MachineArt.Build(definitionId) or MachineArt.BuildPlaceholder(definition)
-	local viewport, camera, focus, radius = createViewport(button, model)
-	local cost, lockOverlay =
-		decorateSlot(button, index, UITheme.formatNumber(definition.Cost), "LOCKED")
-	local slot: Slot = {
-		kind = "Machine",
-		id = definitionId,
-		button = button,
-		stroke = stroke,
-		viewport = viewport,
-		camera = camera,
-		focus = focus,
-		radius = radius,
-		angle = math.rad(40),
-		cost = cost,
-		lockOverlay = lockOverlay,
-	}
+local function setSlotItem(slot: Slot, itemKey: string)
+	if slot.itemKey == itemKey and slot.viewport ~= nil then
+		return
+	end
+	slot.content:ClearAllChildren()
+	slot.itemKey = itemKey
+	slot.viewport, slot.camera, slot.cost, slot.lockOverlay = nil, nil, nil, nil
+	local item = ITEM_BY_KEY[itemKey]
+	if item == nil then
+		slot.kind, slot.id = "Empty", ""
+		return
+	end
+	slot.kind, slot.id = item.kind, item.id
+	local viewport, camera, focus, radius, cost, lockOverlay = buildItemVisual(slot.content, item)
+	slot.viewport, slot.camera, slot.focus, slot.radius = viewport, camera, focus, radius
+	slot.cost, slot.lockOverlay = cost, lockOverlay
+	slot.angle = math.rad(40)
 	framePreview(slot)
-	return slot
-end
-
-local function createTransportSlot(index: number, pipeId: string): Slot
-	local pipe = PipeDefinitions.Types[pipeId]
-	local button, stroke = createSlotShell(index, pipeId .. "Transport")
-	local preview = if pipeId == "Item" then buildConveyorPreview() else buildPipePreview(pipeId)
-	local viewport, camera, focus, radius = createViewport(button, preview)
-	local cost, lockOverlay = decorateSlot(button, index, pipe.ShortName, "SOON")
-	cost.TextColor3 = if pipeId == "Item"
-		then Colors.Gold
-		else Color3.fromRGB(table.unpack(pipe.Color))
-	local slot: Slot = {
-		kind = "Transport",
-		id = pipeId,
-		button = button,
-		stroke = stroke,
-		viewport = viewport,
-		camera = camera,
-		focus = focus,
-		radius = radius,
-		angle = math.rad(40),
-		cost = cost,
-		lockOverlay = lockOverlay,
-	}
-	framePreview(slot)
-	return slot
 end
 
 local function createDivider(order: number)
@@ -582,16 +648,83 @@ local function iconBlock(parent: Frame, position: UDim2, size: UDim2, color: Col
 	UITheme.corner(block, 3)
 end
 
-for _, definitionId in CATALOG do
-	table.insert(slots, createMachineSlot(#slots + 1, definitionId))
-end
-createDivider(#slots + 0.5)
-for _, pipeId in PipeDefinitions.Order do
-	table.insert(slots, createTransportSlot(#slots + 1, pipeId))
+for index = 1, HOTBAR_SIZE do
+	local button = Instance.new("TextButton")
+	button.Name = "Slot" .. index
+	button.Text = ""
+	button.AutoButtonColor = false
+	button.Size = UDim2.fromOffset(76, 76)
+	button.BackgroundColor3 = Colors.Raised
+	button.BackgroundTransparency = 0.1
+	button.BorderSizePixel = 0
+	button.LayoutOrder = index
+	button.Parent = hotbar
+	UITheme.corner(button, 12)
+	local stroke = UITheme.outline(button)
+
+	local content = Instance.new("Frame")
+	content.Name = "Content"
+	content.Size = UDim2.fromScale(1, 1)
+	content.BackgroundTransparency = 1
+	content.Parent = button
+
+	local keyCap = UITheme.keyCap(button, tostring(index))
+	keyCap.Position = UDim2.fromOffset(5, 5)
+	keyCap.Size = UDim2.fromOffset(0, 18)
+	keyCap.ZIndex = 3
+	keyCap.BackgroundTransparency = 0.1
+
+	local slot: Slot = {
+		index = index,
+		kind = "Empty",
+		id = "",
+		itemKey = "",
+		button = button,
+		stroke = stroke,
+		content = content,
+		viewport = nil,
+		camera = nil,
+		focus = Vector3.zero,
+		radius = 1,
+		angle = math.rad(40),
+		cost = nil,
+		lockOverlay = nil,
+	}
+	table.insert(slots, slot)
+	setSlotItem(slot, hotbarItems[index])
 end
 createDivider(50)
+-- The bag opens the inventory, where the hotbar is customised.
+local bagTool = createToolSlot(51, "Bag", "B", function(icon)
+	local body = Instance.new("Frame")
+	body.Name = "BagBody"
+	body.AnchorPoint = Vector2.new(0.5, 1)
+	body.Position = UDim2.fromScale(0.5, 1)
+	body.Size = UDim2.fromOffset(24, 18)
+	body.BackgroundColor3 = Colors.Straw
+	body.BorderSizePixel = 0
+	body.Parent = icon
+	UITheme.corner(body, 5)
+	local flap = Instance.new("Frame")
+	flap.Name = "BagFlap"
+	flap.Position = UDim2.fromOffset(0, 0)
+	flap.Size = UDim2.new(1, 0, 0, 6)
+	flap.BackgroundColor3 = Color3.fromRGB(188, 140, 52)
+	flap.BorderSizePixel = 0
+	flap.Parent = body
+	UITheme.corner(flap, 4)
+	local handle = Instance.new("Frame")
+	handle.Name = "BagHandle"
+	handle.AnchorPoint = Vector2.new(0.5, 1)
+	handle.Position = UDim2.new(0.5, 0, 1, -16)
+	handle.Size = UDim2.fromOffset(14, 10)
+	handle.BackgroundTransparency = 1
+	handle.Parent = icon
+	UITheme.corner(handle, 5)
+	UITheme.outline(handle, Colors.Straw, 0, 2.5)
+end)
 -- The Delete tool removes your machines and belt tiles (and pipes once they exist).
-local deleteTool = createToolSlot(51, "Delete", "X", function(icon)
+local deleteTool = createToolSlot(52, "Delete", "X", function(icon)
 	for _, angle in { 45, -45 } do
 		local bar = Instance.new("Frame")
 		bar.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -604,7 +737,7 @@ local deleteTool = createToolSlot(51, "Delete", "X", function(icon)
 		UITheme.corner(bar, 2)
 	end
 end)
-local gridTool = createToolSlot(52, "Grid", "G", function(icon)
+local gridTool = createToolSlot(53, "Grid", "G", function(icon)
 	for row = 0, 2 do
 		for columnIndex = 0, 2 do
 			iconBlock(
@@ -649,11 +782,18 @@ for _, child in tooltip:GetDescendants() do
 end
 
 local function showTooltip(slot: Slot?)
-	if slot == nil then
+	if slot == nil or slot.kind == "Empty" then
 		tooltip.Visible = false
 		return
 	end
-	if slot.kind == "Transport" then
+	if slot.kind == "Future" then
+		local item = ITEM_BY_KEY[slot.itemKey]
+		tooltipName.Text = item.name
+		tooltipRecipe.Text = item.blurb or ""
+		tooltipDetail.Text = "Unlocks through research in the coming tier update."
+		tooltipStatus.Text = "Coming soon"
+		tooltipStatus.TextColor3 = Colors.Muted
+	elseif slot.kind == "Transport" then
 		local pipe = PipeDefinitions.Types[slot.id]
 		tooltipName.Text = pipe.DisplayName
 		tooltipRecipe.Text = pipe.Carries
@@ -839,6 +979,9 @@ end
 -- Refresh -----------------------------------------------------------------------------------------
 
 local function isSelected(slot: Slot): boolean
+	if slot.kind == "Empty" or slot.kind == "Future" then
+		return false
+	end
 	if slot.kind == "Transport" then
 		return mode == "Conveyor" and slot.id == "Item"
 	end
@@ -850,18 +993,28 @@ local function refreshPanel()
 	local balance = credits()
 	for _, slot in slots do
 		local selected = isSelected(slot)
-		local locked
+		local locked = false
 		if slot.kind == "Transport" then
 			locked = not PipeDefinitions.Types[slot.id].Ready
-		else
+		elseif slot.kind == "Future" then
+			locked = true
+		elseif slot.kind == "Machine" then
 			local definition = MachineDefinitions[slot.id]
 			locked = definition.UnlockAfterFirstSale == true and not unlocked
-			slot.cost.TextColor3 = if balance < definition.Cost then Colors.Danger else Colors.Gold
+			if slot.cost then
+				slot.cost.TextColor3 = if balance < definition.Cost
+					then Colors.Danger
+					else Colors.Gold
+			end
 		end
-		slot.lockOverlay.Visible = locked
-		slot.viewport.ImageColor3 = if locked
-			then Color3.fromRGB(110, 110, 110)
-			else Color3.new(1, 1, 1)
+		if slot.lockOverlay then
+			slot.lockOverlay.Visible = locked
+		end
+		if slot.viewport then
+			slot.viewport.ImageColor3 = if locked
+				then Color3.fromRGB(110, 110, 110)
+				else Color3.new(1, 1, 1)
+		end
 		slot.stroke.Color = if selected then Colors.Gold else Colors.Outline
 		slot.stroke.Transparency = if selected then 0 else 0.88
 		slot.stroke.Thickness = if selected then 2 else 1
@@ -986,6 +1139,13 @@ local function setMode(newMode: string, id: string?)
 end
 
 local function activateSlot(slot: Slot)
+	if slot.kind == "Empty" then
+		showMessage("Empty slot. Press B to open your inventory and drag an item here.")
+		return
+	elseif slot.kind == "Future" then
+		showMessage("This machine unlocks through research in the coming tier update.")
+		return
+	end
 	if isSelected(slot) then
 		setMode("None")
 	elseif slot.kind == "Transport" then
@@ -1004,6 +1164,350 @@ local function activateSlot(slot: Slot)
 		setMode("Place", slot.id)
 	end
 end
+
+-- Inventory ------------------------------------------------------------------------------------
+-- B or the bag opens every buildable item. Drag an item onto hotbar slots 1 to 9, drag hotbar
+-- items between slots to swap them, or drag one off the hotbar to put it away. Hovering an item
+-- and pressing 1 to 9 also assigns it.
+
+local inventoryOpen = false
+local hoveredCard: Item? = nil
+
+local inventory = UITheme.card("Inventory", screenGui, 520)
+inventory.AnchorPoint = Vector2.new(0.5, 0.5)
+inventory.Position = UDim2.fromScale(0.5, 0.44)
+inventory.Visible = false
+inventory.ZIndex = 20
+UITheme.padding(inventory, 12, 14)
+UITheme.list(inventory, 8)
+
+local inventoryHeader = Instance.new("Frame")
+inventoryHeader.Name = "Header"
+inventoryHeader.Size = UDim2.new(1, 0, 0, 34)
+inventoryHeader.BackgroundTransparency = 1
+inventoryHeader.LayoutOrder = 0
+inventoryHeader.Parent = inventory
+UITheme.text(inventoryHeader, {
+	name = "Title",
+	text = "INVENTORY",
+	size = UDim2.new(1, -40, 0, 20),
+	font = Fonts.Heavy,
+	textSize = 17,
+	color = Colors.Gold,
+})
+UITheme.text(inventoryHeader, {
+	name = "Hint",
+	text = "Drag items onto your hotbar. Drag a hotbar item here to put it away.",
+	size = UDim2.new(1, -40, 0, 14),
+	textSize = 12,
+	color = Colors.Muted,
+}).Position =
+	UDim2.fromOffset(0, 20)
+
+local closeButton = Instance.new("TextButton")
+closeButton.Name = "Close"
+closeButton.AnchorPoint = Vector2.new(1, 0)
+closeButton.Position = UDim2.fromScale(1, 0)
+closeButton.Size = UDim2.fromOffset(28, 28)
+closeButton.BackgroundColor3 = Colors.Raised
+closeButton.Text = "X"
+closeButton.FontFace = Fonts.Heavy
+closeButton.TextSize = 16
+closeButton.TextColor3 = Colors.Text
+closeButton.AutoButtonColor = true
+closeButton.Parent = inventoryHeader
+UITheme.corner(closeButton, 8)
+
+type Card =
+	{ item: Item, button: TextButton, badge: TextLabel, preview: Preview, lockOverlay: Frame }
+local cards: { Card } = {}
+
+local function createSection(order: number, title: string): Frame
+	UITheme.text(inventory, {
+		name = title .. "Title",
+		text = string.upper(title),
+		size = UDim2.new(1, 0, 0, 16),
+		font = Fonts.Heavy,
+		textSize = 12,
+		color = Colors.Muted,
+		order = order,
+	})
+	local grid = Instance.new("Frame")
+	grid.Name = title .. "Grid"
+	grid.Size = UDim2.fromScale(1, 0)
+	grid.AutomaticSize = Enum.AutomaticSize.Y
+	grid.BackgroundTransparency = 1
+	grid.LayoutOrder = order + 1
+	grid.Parent = inventory
+	local layout = Instance.new("UIGridLayout")
+	layout.CellSize = UDim2.fromOffset(76, 92)
+	layout.CellPadding = UDim2.fromOffset(8, 8)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = grid
+	return grid
+end
+
+local sectionGrids: { [string]: Frame } = {
+	Machines = createSection(10, "Machines"),
+	Transport = createSection(20, "Transport"),
+	Research = createSection(30, "Research"),
+}
+
+for order, item in ITEMS do
+	local button = Instance.new("TextButton")
+	button.Name = item.key
+	button.Text = ""
+	button.AutoButtonColor = false
+	button.BackgroundColor3 = Colors.Raised
+	button.BackgroundTransparency = 0.1
+	button.BorderSizePixel = 0
+	button.LayoutOrder = order
+	button.Parent = sectionGrids[item.category]
+	UITheme.corner(button, 12)
+	UITheme.outline(button)
+
+	local visual = Instance.new("Frame")
+	visual.Name = "Visual"
+	visual.Size = UDim2.fromOffset(76, 68)
+	visual.BackgroundTransparency = 1
+	visual.Parent = button
+	local _, camera, focus, radius, _, lockOverlay = buildItemVisual(visual, item)
+
+	UITheme.text(button, {
+		name = "Name",
+		text = item.name,
+		size = UDim2.new(1, -6, 0, 20),
+		font = Fonts.Bold,
+		textSize = 10,
+		alignX = Enum.TextXAlignment.Center,
+		wrap = true,
+	}).Position =
+		UDim2.new(0, 3, 1, -22)
+
+	-- Shows which hotbar key the item sits on, if any.
+	local badge = UITheme.text(button, {
+		name = "Badge",
+		size = UDim2.fromOffset(20, 20),
+		font = Fonts.Heavy,
+		textSize = 12,
+		color = Colors.Panel,
+		alignX = Enum.TextXAlignment.Center,
+	})
+	badge.Position = UDim2.fromOffset(6, 6)
+	badge.BackgroundColor3 = Colors.Gold
+	badge.BackgroundTransparency = 0
+	badge.ZIndex = 4
+	UITheme.corner(badge, 10)
+
+	local card: Card = {
+		item = item,
+		button = button,
+		badge = badge,
+		preview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) },
+		lockOverlay = lockOverlay,
+	}
+	framePreview(card.preview)
+	table.insert(cards, card)
+end
+for _, descendant in inventory:GetDescendants() do
+	if descendant:IsA("GuiObject") then
+		descendant.ZIndex = math.max(descendant.ZIndex, 20)
+			+ (if descendant.Name == "Badge" then 2 else 0)
+	end
+end
+
+local function refreshCards()
+	local unlocked = isUnlocked()
+	for _, card in cards do
+		local index = table.find(hotbarItems, card.item.key)
+		card.badge.Visible = index ~= nil
+		card.badge.Text = if index then tostring(index) else ""
+		local locked = card.item.kind == "Future"
+			or (card.item.kind == "Transport" and not PipeDefinitions.Types[card.item.id].Ready)
+			or (
+				card.item.kind == "Machine"
+				and MachineDefinitions[card.item.id].UnlockAfterFirstSale == true
+				and not unlocked
+			)
+		card.lockOverlay.Visible = locked
+	end
+end
+
+local function applyHotbar()
+	for index, slot in slots do
+		setSlotItem(slot, hotbarItems[index])
+	end
+	refreshCards()
+	refreshPanel()
+end
+
+-- Puts an item on a slot. An item already on the hotbar moves, swapping with what was there.
+local function assignToSlot(index: number, itemKey: string, fromIndex: number?)
+	local origin = fromIndex or table.find(hotbarItems, itemKey)
+	if origin == index then
+		return
+	end
+	if origin then
+		hotbarItems[origin] = hotbarItems[index]
+	end
+	hotbarItems[index] = itemKey
+	applyHotbar()
+end
+
+local function clearSlot(index: number)
+	hotbarItems[index] = ""
+	applyHotbar()
+end
+
+local function setInventoryOpen(open: boolean)
+	inventoryOpen = open
+	inventory.Visible = open
+	hoveredCard = nil
+	if open then
+		setMode("None")
+		showTooltip(nil)
+		refreshCards()
+	end
+	bagTool.stroke.Color = if open then Colors.Gold else Colors.Outline
+	bagTool.stroke.Transparency = if open then 0 else 0.88
+	bagTool.stroke.Thickness = if open then 2 else 1
+end
+
+-- Dragging --------------------------------------------------------------------------------------
+
+type Drag = { itemKey: string, fromIndex: number?, start: Vector2, ghost: Frame? }
+local drag: Drag? = nil
+
+local function guiMouse(): Vector2
+	return UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
+end
+
+local function inside(gui: GuiObject, point: Vector2): boolean
+	local position, size = gui.AbsolutePosition, gui.AbsoluteSize
+	return point.X >= position.X
+		and point.X <= position.X + size.X
+		and point.Y >= position.Y
+		and point.Y <= position.Y + size.Y
+end
+
+local function makeGhost(itemKey: string): Frame
+	local item = ITEM_BY_KEY[itemKey]
+	local ghost = Instance.new("Frame")
+	ghost.Name = "DragGhost"
+	ghost.AnchorPoint = Vector2.new(0.5, 0.5)
+	ghost.Size = UDim2.fromOffset(72, 72)
+	ghost.BackgroundColor3 = Colors.Hover
+	ghost.BackgroundTransparency = 0.15
+	ghost.ZIndex = 60
+	ghost.Parent = screenGui
+	UITheme.corner(ghost, 12)
+	UITheme.outline(ghost, Colors.Gold, 0, 2)
+	local _, camera, focus, radius = buildItemVisual(ghost, item)
+	framePreview({ camera = camera, focus = focus, radius = radius, angle = math.rad(40) })
+	for _, descendant in ghost:GetDescendants() do
+		if descendant:IsA("GuiObject") then
+			descendant.ZIndex = 61
+		end
+	end
+	return ghost
+end
+
+local function beginDrag(itemKey: string, fromIndex: number?)
+	if itemKey == "" then
+		return
+	end
+	drag = { itemKey = itemKey, fromIndex = fromIndex, start = guiMouse(), ghost = nil }
+end
+
+local function finishDrag()
+	local current = drag
+	drag = nil
+	if current == nil then
+		return
+	end
+	if current.ghost == nil then
+		-- A click without moving: from the inventory it fills the first empty slot.
+		if current.fromIndex == nil then
+			local empty = table.find(hotbarItems, "")
+			if table.find(hotbarItems, current.itemKey) then
+				showMessage("That item is already on your hotbar.")
+			elseif empty then
+				assignToSlot(empty, current.itemKey)
+			else
+				showMessage("Your hotbar is full. Drag the item onto a slot to replace it.")
+			end
+		end
+		return
+	end
+	current.ghost:Destroy()
+	local point = guiMouse()
+	for index, slot in slots do
+		if inside(slot.button, point) then
+			assignToSlot(index, current.itemKey, current.fromIndex)
+			return
+		end
+	end
+	if current.fromIndex and not inside(hotbar, point) then
+		clearSlot(current.fromIndex)
+	end
+end
+
+RunService.RenderStepped:Connect(function(deltaTime: number)
+	local current = drag
+	if current then
+		local point = guiMouse()
+		if current.ghost == nil and (point - current.start).Magnitude > 6 then
+			current.ghost = makeGhost(current.itemKey)
+		end
+		if current.ghost then
+			current.ghost.Position = UDim2.fromOffset(point.X, point.Y)
+		end
+	end
+	if inventoryOpen then
+		for _, card in cards do
+			if card.item == hoveredCard then
+				card.preview.angle += deltaTime * 0.9
+				framePreview(card.preview)
+			end
+		end
+	end
+end)
+
+for _, card in cards do
+	card.button.MouseEnter:Connect(function()
+		hoveredCard = card.item
+	end)
+	card.button.MouseLeave:Connect(function()
+		if hoveredCard == card.item then
+			hoveredCard = nil
+		end
+	end)
+	card.button.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			beginDrag(card.item.key, nil)
+		end
+	end)
+end
+for index, slot in slots do
+	slot.button.InputBegan:Connect(function(input)
+		-- Rearranging the hotbar only happens while the inventory is open, so a normal click
+		-- on a slot still just selects it.
+		if inventoryOpen and input.UserInputType == Enum.UserInputType.MouseButton1 then
+			beginDrag(slot.itemKey, index)
+		end
+	end)
+end
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		finishDrag()
+	end
+end)
+closeButton.Activated:Connect(function()
+	setInventoryOpen(false)
+end)
+bagTool.button.Activated:Connect(function()
+	setInventoryOpen(not inventoryOpen)
+end)
 
 -- Belt requests run one at a time in order, so a fast drag never lands out of sequence.
 type BeltRequest = { action: string, x: number, z: number, dir: number }
@@ -1445,7 +1949,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	local slotIndex = table.find(SLOT_KEYS, input.KeyCode)
 	local cell = hoveredCell
-	if slotIndex and slots[slotIndex] then
+	local card = hoveredCard
+	if input.KeyCode == Enum.KeyCode.B then
+		setInventoryOpen(not inventoryOpen)
+	elseif slotIndex and inventoryOpen then
+		-- Hover an inventory item and press a number to put it on that slot.
+		if card then
+			assignToSlot(slotIndex, card.key)
+		end
+	elseif
+		inventoryOpen and (input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.Escape)
+	then
+		setInventoryOpen(false)
+	elseif inventoryOpen then
+		return
+	elseif slotIndex and slots[slotIndex] then
 		activateSlot(slots[slotIndex])
 	elseif input.KeyCode == Enum.KeyCode.R and mode == "Place" then
 		rotationSteps = (rotationSteps + 1) % 4
