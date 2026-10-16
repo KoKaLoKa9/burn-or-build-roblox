@@ -1060,6 +1060,7 @@ local function refreshPanel()
 			{ tostring(#CATALOG + 1), "Conveyor" },
 			{ "F", "Pause machine" },
 			{ "X", "Delete" },
+			{ "Shift", "Run" },
 		})
 	end
 end

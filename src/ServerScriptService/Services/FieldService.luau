@@ -7,10 +7,6 @@ local StrawSheaf = require(script.Parent:WaitForChild("StrawSheaf"))
 local FieldService = {}
 
 local CHARRED_ROW = Color3.fromRGB(52, 45, 38)
--- Sheaves stand in the lanes between rice rows, at varied depths so the field looks harvested.
-local LANE_SPACING = 9
-local LANE_COUNT = 8
-local SHEAF_DEPTHS = { -20, 12, -6, 22, -14, 4, 18, -24 }
 
 local function setFieldState(fieldModel: Model, state: string, remainingBundles: number)
 	fieldModel:SetAttribute("State", state)
@@ -116,7 +112,6 @@ function FieldService:Initialize(
 	local sheafFolder = Instance.new("Folder")
 	sheafFolder.Name = "Sheaves"
 	sheafFolder.Parent = fieldModel
-	local groundY = strawArea.Size.Y / 2
 	local burnPrompt = createPrompt(
 		burnPoint,
 		"BurnPrompt",
@@ -218,11 +213,7 @@ function FieldService:Initialize(
 
 	-- One sheaf per bundle, walked up to and picked up by hand (spec 2.3: manual collection first).
 	for index = 1, fieldDefinition.Bundles do
-		local lane = (index - 1) % LANE_COUNT
-		local x = (lane - (LANE_COUNT - 1) / 2) * LANE_SPACING
-		local z = SHEAF_DEPTHS[(index - 1) % #SHEAF_DEPTHS + 1]
-		local ground = strawArea.CFrame * CFrame.new(x, groundY, z)
-		local sheaf, bundle = StrawSheaf.Build(ground, index)
+		local sheaf, bundle = StrawSheaf.Build(StrawSheaf.GroundFor(strawArea, index), index)
 		local prompt =
 			createPrompt(bundle, "PickUpPrompt", "Pick up", "Rice straw sheaf", Enum.KeyCode.E, 0.3)
 		prompt.MaxActivationDistance = 8

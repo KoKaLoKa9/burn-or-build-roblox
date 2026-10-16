@@ -9,6 +9,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
 
+local StrawSheaf = require(script.Parent:WaitForChild("StrawSheaf"))
+
 local Simulation = script.Parent.Parent:WaitForChild("Simulation")
 local FarmCommitments = require(Simulation:WaitForChild("FarmCommitments"))
 
@@ -22,8 +24,10 @@ type FarmView = {
 	label: TextLabel,
 	acceptPrompt: ProximityPrompt,
 	rejectPrompt: ProximityPrompt,
-	collectPrompt: ProximityPrompt,
 	extendPrompt: ProximityPrompt,
+	-- One standing sheaf per bundle still in the field, walked up to and picked up like Farm A.
+	sheaves: { Model },
+	charred: boolean,
 }
 
 local book: any
@@ -122,6 +126,32 @@ local function createStatusLabel(parent: BasePart): TextLabel
 	return label
 end
 
+local function sheafPrompts(view: FarmView, enabled: boolean)
+	for _, sheaf in view.sheaves do
+		local prompt = sheaf:FindFirstChild("PickUpPrompt", true)
+		if prompt and prompt:IsA("ProximityPrompt") then
+			prompt.Enabled = enabled
+		end
+	end
+end
+
+-- Keeps the standing sheaves equal to the straw left, whoever took it (player or truck).
+local function syncSheaves(view: FarmView, remaining: number, burned: boolean)
+	if burned then
+		if not view.charred then
+			view.charred = true
+			for _, sheaf in view.sheaves do
+				StrawSheaf.Char(sheaf)
+			end
+		end
+		return
+	end
+	while #view.sheaves > remaining do
+		local sheaf = table.remove(view.sheaves) :: Model
+		sheaf:Destroy()
+	end
+end
+
 local function setRiceVisible(model: Model, visible: boolean)
 	for _, child in model:GetChildren() do
 		if child:IsA("BasePart") and child.Name == "RiceRow" then
@@ -150,7 +180,9 @@ local function refreshFarm(farmId: string)
 
 	view.acceptPrompt.Enabled = state == "Available"
 	view.rejectPrompt.Enabled = state == "Available"
-	view.collectPrompt.Enabled = promised and open and farm.remaining > 0
+	syncSheaves(view, farm.remaining, state == "Missed" or state == "Burned")
+	-- Only the farm you promised to clear lets you pick up its straw.
+	sheafPrompts(view, promised and open and farm.remaining > 0)
 	view.extendPrompt.Enabled = promised and open and not farm.extended
 
 	local lines = { string.format("%s: %s", definition.DisplayName, STATE_TEXT[state] or state) }
@@ -184,9 +216,9 @@ local function refreshFarm(farmId: string)
 			table.insert(
 				lines,
 				if farm.extended
-					then "[E] collect 1 bundle"
+					then "Walk the field, [E] on a sheaf to pick it up"
 					else string.format(
-						"[E] collect 1 bundle   hold [Y] extend (%d credits)",
+						"[E] on a sheaf to pick it up   hold [Y] extend (%d credits)",
 						CommitmentDefinitions.ExtensionFee
 					)
 			)
@@ -330,14 +362,6 @@ function CommitmentService:Initialize(
 				Enum.KeyCode.T,
 				1.5
 			),
-			collectPrompt = createPrompt(
-				collectionPoint,
-				"CollectPrompt",
-				"Collect 1 bundle",
-				definition.DisplayName,
-				Enum.KeyCode.E,
-				0.25
-			),
 			extendPrompt = createPrompt(
 				collectionPoint,
 				"ExtendPrompt",
@@ -346,8 +370,67 @@ function CommitmentService:Initialize(
 				Enum.KeyCode.Y,
 				1
 			),
+			sheaves = {},
+			charred = false,
 		}
 		views[farmId] = view
+
+		-- Rice rows stay as scenery but no longer block walking down the lanes.
+		for _, child in model:GetChildren() do
+			if child:IsA("BasePart") and child.Name == "RiceRow" then
+				child.CanCollide = false
+			end
+		end
+		local oldCollect = collectionPoint:FindFirstChild("CollectPrompt")
+		if oldCollect then
+			oldCollect:Destroy()
+		end
+		local strawArea = model:FindFirstChild("StrawArea")
+		assert(
+			strawArea and strawArea:IsA("BasePart"),
+			definition.ModelName .. " StrawArea is missing"
+		)
+		local oldSheaves = model:FindFirstChild("Sheaves")
+		if oldSheaves then
+			oldSheaves:Destroy()
+		end
+		local sheafFolder = Instance.new("Folder")
+		sheafFolder.Name = "Sheaves"
+		sheafFolder.Parent = model
+		for index = 1, definition.Bundles do
+			local sheaf, bundle = StrawSheaf.Build(StrawSheaf.GroundFor(strawArea, index), index)
+			local prompt = createPrompt(
+				bundle,
+				"PickUpPrompt",
+				"Pick up",
+				definition.DisplayName .. " straw",
+				Enum.KeyCode.E,
+				0.3
+			)
+			prompt.MaxActivationDistance = 8
+			prompt.Enabled = false
+			prompt.Triggered:Connect(function(player)
+				if sheaf.Parent == nil then
+					return
+				end
+				local ok, reason = book:CanCollect(farmId, now())
+				if not ok then
+					machineService:Notify(player, reason)
+					return
+				end
+				-- Move this sheaf to the end so the sync removes exactly the one picked up.
+				local position = table.find(view.sheaves, sheaf)
+				if position then
+					table.remove(view.sheaves, position)
+					table.insert(view.sheaves, sheaf)
+				end
+				if self:TakeStraw(farmId, 1) > 0 then
+					playerState:AddStraw(player, 1)
+				end
+			end)
+			sheaf.Parent = sheafFolder
+			table.insert(view.sheaves, sheaf)
+		end
 
 		view.acceptPrompt.Triggered:Connect(function(player)
 			local _, message = book:Accept(farmId, player)
@@ -360,16 +443,6 @@ function CommitmentService:Initialize(
 			machineService:Notify(player, message)
 			handleEvents(book:Drain())
 			refreshFarm(farmId)
-		end)
-		view.collectPrompt.Triggered:Connect(function(player)
-			local ok, reason = book:CanCollect(farmId, now())
-			if not ok then
-				machineService:Notify(player, reason)
-				return
-			end
-			if self:TakeStraw(farmId, 1) > 0 then
-				playerState:AddStraw(player, 1)
-			end
 		end)
 		view.extendPrompt.Triggered:Connect(function(player)
 			if playerState:GetCredits(player) < CommitmentDefinitions.ExtensionFee then

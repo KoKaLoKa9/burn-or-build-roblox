@@ -9,6 +9,10 @@ local STRAW = Color3.fromRGB(226, 185, 83)
 local STRAW_LIGHT = Color3.fromRGB(240, 208, 118)
 local TIE = Color3.fromRGB(139, 98, 52)
 local CHARRED = Color3.fromRGB(46, 40, 35)
+-- Sheaves stand in the lanes between rice rows, at varied depths so the field looks harvested.
+local LANE_SPACING = 9
+local LANE_COUNT = 8
+local SHEAF_DEPTHS = { -20, 12, -6, 22, -14, 4, 18, -24 }
 
 local function part(model: Model, name: string, size: Vector3, cframe: CFrame, color: Color3): Part
 	local item = Instance.new("Part")
@@ -60,6 +64,16 @@ function StrawSheaf.Build(groundCFrame: CFrame, seed: number): (Model, BasePart)
 
 	model.PrimaryPart = body
 	return model, body
+end
+
+-- Where sheaf number `index` stands on a field's StrawArea. Each pass over the lanes shifts the
+-- depth pattern, so fields with more than one sheaf per lane never stack two in one spot.
+function StrawSheaf.GroundFor(strawArea: BasePart, index: number): CFrame
+	local lane = (index - 1) % LANE_COUNT
+	local pass = (index - 1) // LANE_COUNT
+	local x = (lane - (LANE_COUNT - 1) / 2) * LANE_SPACING
+	local z = SHEAF_DEPTHS[(lane + pass * 3) % #SHEAF_DEPTHS + 1]
+	return strawArea.CFrame * CFrame.new(x, strawArea.Size.Y / 2, z)
 end
 
 -- Burned straw is left as charred stubs so the field shows what happened.

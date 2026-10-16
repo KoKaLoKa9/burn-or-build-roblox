@@ -79,6 +79,7 @@ Balance assumptions not fixed by spec v0.2 live in `CommitmentDefinitions.luau`:
 | E | Pick up a straw sheaf in your field, or deposit carried straw at the covered collection point |
 | H (hold) | Allow burning on your own field |
 | B | Open the inventory: drag items onto hotbar slots 1 to 9, or drag a hotbar item off to put it away |
+| Shift (hold) | Run, about 2.5 times walking speed |
 | 1 to 5 | Select a machine (dryer, shredder, pellet mill, storage, truck terminal) |
 | 6 | Conveyor: click to lay a tile, or hold and drag to lay a line that turns with the drag (5 credits per tile) |
 | 7, 8 | Fluid and gas pipes, reserved for the energy update |
@@ -211,7 +212,7 @@ Start from a fresh Play session. Times are minutes since the server started. To 
 13. Season replay: the bottleneck line names a machine if one was backed up for 15 s (pause the shredder with F while the dryer runs to force it), "What went well" names a kept promise, cleared field, or first sale, and burns are listed in time order.
 14. Check that no screen calls the points PM2.5. The only mention is the disclaimer in the result footer saying the points are not measured PM2.5 concentrations.
 15. Close the results, confirm the SEASON RESULTS button at the top reopens them.
-16. Soft end (third session): reject both farms, burn Farm A with B, and do not build. After minute 16 every field is settled and nothing is left to process; confirm the notice says the season closes in 45 s and the results open early with "Every field was settled and no straw was left to process."
+16. Soft end (third session): reject both farms, burn Farm A with H, and do not build. After minute 16 every field is settled and nothing is left to process; confirm the notice says the season closes in 45 s and the results open early with "Every field was settled and no straw was left to process."
 
 ## Publication
 
