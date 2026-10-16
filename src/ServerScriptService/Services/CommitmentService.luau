@@ -174,6 +174,10 @@ local function refreshFarm(farmId: string)
 				definition.BurnExposure
 			)
 		)
+		if world:GetAttribute("WeatherActive") == "Rain" and farm.remaining > 0 then
+			-- Spec 11.3: loose straw in the field stays wet while it rains.
+			table.insert(lines, "Raining: loose straw stays wet, dryers run slower")
+		end
 		if state == "Available" then
 			table.insert(lines, "[E] accept   hold [T] reject")
 		elseif promised then
@@ -204,13 +208,13 @@ local function handleEvents(events: { any })
 
 		if event.type == "Extended" then
 			if owner then
-				playerState:AdjustCredits(owner, event.credits)
+				playerState:AdjustCredits(owner, event.credits, "Extension")
 			end
 		elseif event.type == "Completed" then
 			setRiceVisible(view.model, false)
 			if owner then
 				playerState:AdjustTrust(owner, event.trust)
-				playerState:AdjustCredits(owner, event.credits)
+				playerState:AdjustCredits(owner, event.credits, "Bonus")
 				machineService:Notify(
 					owner,
 					string.format(

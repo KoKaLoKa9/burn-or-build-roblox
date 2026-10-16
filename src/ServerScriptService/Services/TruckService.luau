@@ -228,7 +228,7 @@ local function handleEvents(truck: Truck, events: { any })
 			)
 		elseif event.type == "TripCompleted" then
 			if owner and owner.Parent then
-				playerState:AdjustCredits(owner, -event.fee)
+				playerState:AdjustCredits(owner, -event.fee, "RouteFee")
 			end
 			machineService:Notify(
 				owner,

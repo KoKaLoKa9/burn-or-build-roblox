@@ -21,6 +21,9 @@ export type SourceRecord = {
 	wind: string,
 	destination: string,
 	exposure: number,
+	-- Points this burn released wherever the wind carried them. Exposure is the part that
+	-- reached the village; the season results show both (spec 11.3: pollution still exists).
+	potential: number,
 	responsibility: string,
 }
 
@@ -43,6 +46,7 @@ local function publishRecord(record: SourceRecord)
 	entry:SetAttribute("Wind", record.wind)
 	entry:SetAttribute("Destination", record.destination)
 	entry:SetAttribute("Exposure", record.exposure)
+	entry:SetAttribute("Potential", record.potential)
 	entry:SetAttribute("Responsibility", record.responsibility)
 	entry.Parent = folder
 end
@@ -150,6 +154,7 @@ function SmokeService:BurnField(
 		wind = gameConfig.Wind.Label,
 		destination = if exposed then "Village" else "Open land",
 		exposure = if exposed then exposurePoints else 0,
+		potential = exposurePoints,
 		responsibility = source.responsibility,
 	}
 	table.insert(sourceRecords, record)

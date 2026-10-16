@@ -1,6 +1,12 @@
 --!strict
 
+local Simulation = script.Parent.Parent:WaitForChild("Simulation")
+local SeasonResults = require(Simulation:WaitForChild("SeasonResults"))
+
 local PlayerStateService = {}
+
+-- Every credit change with a category lands in the season ledger (spec 12.3 profit causes).
+local ledgers: { [Player]: SeasonResults.Ledger } = {}
 
 local DEFAULT_ATTRIBUTES: { [string]: any } = {
 	Credits = 1_000,
@@ -23,8 +29,24 @@ function PlayerStateService:GetCredits(player: Player): number
 	return readNumber(player, "Credits")
 end
 
-function PlayerStateService:AdjustCredits(player: Player, amount: number)
+function PlayerStateService:AdjustCredits(player: Player, amount: number, category: string?)
 	player:SetAttribute("Credits", readNumber(player, "Credits") + amount)
+	if category then
+		local ledger = ledgers[player]
+		if ledger == nil then
+			ledger = SeasonResults.newLedger()
+			ledgers[player] = ledger
+		end
+		SeasonResults.record(ledger, category, amount)
+	end
+end
+
+function PlayerStateService:GetLedger(player: Player): SeasonResults.Ledger
+	return table.clone(ledgers[player] or SeasonResults.newLedger())
+end
+
+function PlayerStateService:GetTrust(player: Player): number
+	return readNumber(player, "Trust")
 end
 
 function PlayerStateService:RecordSale(player: Player)

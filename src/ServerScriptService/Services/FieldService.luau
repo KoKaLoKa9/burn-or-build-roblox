@@ -130,11 +130,13 @@ function FieldService:Initialize(
 	local function refreshStatus()
 		local secondsLeft = math.max(0, math.ceil(deadlineAt - workspace:GetServerTimeNow()))
 		statusLabel.Text = string.format(
-			"%s\n%d bundles | %d:%02d remaining",
+			"%s\n%d bundles | %d:%02d remaining%s",
 			fieldDefinition.DisplayName,
 			remainingBundles,
 			math.floor(secondsLeft / 60),
-			secondsLeft % 60
+			secondsLeft % 60,
+			-- Spec 11.3: loose straw left in the field stays wet in the rain.
+			if world:GetAttribute("WeatherActive") == "Rain" then "\nRain: straw stays wet" else ""
 		)
 	end
 
@@ -179,7 +181,10 @@ function FieldService:Initialize(
 			end
 		end
 
-		statusLabel.Text = "FIELD BURNED\nSmoke moving east"
+		statusLabel.Text = string.format(
+			"FIELD BURNED\nSmoke moving %s",
+			string.lower(tostring(gameConfig.Wind.Label))
+		)
 		smokeService:BurnField(
 			world,
 			burnPoint,

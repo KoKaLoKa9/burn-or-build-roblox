@@ -14,6 +14,8 @@ local MachineService = require(Services:WaitForChild("MachineService"))
 local CommitmentService = require(Services:WaitForChild("CommitmentService"))
 local TruckService = require(Services:WaitForChild("TruckService"))
 local WorldLabelService = require(Services:WaitForChild("WorldLabelService"))
+local WeatherService = require(Services:WaitForChild("WeatherService"))
+local SeasonService = require(Services:WaitForChild("SeasonService"))
 
 local function initializePlayer(player: Player)
 	PlayerStateService:InitializePlayer(player)
@@ -29,12 +31,21 @@ if world == nil or not world:IsA("Model") then
 	error("BurnOrBuildWorld is missing. Generate or load the approved graybox before playing.")
 end
 
-world:SetAttribute("ProjectMilestone", "Week3CommitmentsAndTrucks")
+world:SetAttribute("ProjectMilestone", "Week4SeasonLoop")
 world:SetAttribute("WindDirection", GameConfig.Wind.Label)
 -- MachineService creates the shared remotes, so it starts before the services that notify.
 MachineService:Initialize(world, PlayerStateService)
 FieldService:Initialize(world, PlayerStateService, SmokeService, GameConfig)
 CommitmentService:Initialize(world, PlayerStateService, SmokeService, MachineService, GameConfig)
 TruckService:Initialize(world, PlayerStateService, MachineService, CommitmentService)
+-- The season clock starts with the farm deadlines above and owns the weather event.
+SeasonService:Initialize(
+	world,
+	GameConfig,
+	PlayerStateService,
+	MachineService,
+	SmokeService,
+	WeatherService
+)
 -- Runs last so it restyles every label the other services created.
 WorldLabelService:Initialize(world)

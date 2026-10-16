@@ -65,7 +65,30 @@ function ProductionLine.new(definitions: { [string]: any })
 	self.nextLinkId = 1
 	self.nextUnitId = 1
 	self.events = {} :: { Event }
+	-- Weather can stretch a machine type's cycle time (spec 11.3: rain slows drying).
+	self.cycleMultipliers = {} :: { [string]: number }
 	return self
+end
+
+-- A multiplier of 1 restores the catalog cycle time. Progress already made is kept.
+function ProductionLine:SetCycleMultiplier(definitionId: string, multiplier: number)
+	self.cycleMultipliers[definitionId] = if multiplier == 1 then nil else multiplier
+end
+
+function ProductionLine:CycleSeconds(node: Node): number
+	return node.definition.CycleSeconds * (self.cycleMultipliers[node.definitionId] or 1)
+end
+
+-- Every unit still inside the line: machine buffers, cycles in progress, and belts.
+function ProductionLine:CountItems(): number
+	local total = 0
+	for _, node in self.nodes do
+		total += #node.input + #node.output + #node.held + #node.reserved
+	end
+	for _, link in self.links do
+		total += #link.items
+	end
+	return total
 end
 
 function ProductionLine:_newUnit(item: string, owner: any): Unit
@@ -410,6 +433,7 @@ end
 
 function ProductionLine:_stepProcessor(node: Node, dt: number)
 	local definition = node.definition
+	local cycleSeconds = self:CycleSeconds(node)
 	if node.paused then
 		-- Pausing preserves progress and stored items (spec 4.3).
 		node.state, node.reason = "Paused", "Paused by player"
@@ -420,7 +444,7 @@ function ProductionLine:_stepProcessor(node: Node, dt: number)
 
 	if node.cycling then
 		node.progress += dt
-		if node.progress >= definition.CycleSeconds then
+		if node.progress >= cycleSeconds then
 			node.cycling = false
 			node.progress = 0
 			table.clear(node.reserved)
@@ -445,7 +469,7 @@ function ProductionLine:_stepProcessor(node: Node, dt: number)
 			flushHeld(node)
 		else
 			node.state = "Processing"
-			node.reason = string.format("%.0fs remaining", definition.CycleSeconds - node.progress)
+			node.reason = string.format("%.0fs remaining", cycleSeconds - node.progress)
 			return
 		end
 	end
@@ -470,7 +494,7 @@ function ProductionLine:_stepProcessor(node: Node, dt: number)
 		node.cycling = true
 		node.progress = 0
 		node.state = "Processing"
-		node.reason = string.format("%.0fs remaining", definition.CycleSeconds)
+		node.reason = string.format("%.0fs remaining", cycleSeconds)
 	end
 end
 

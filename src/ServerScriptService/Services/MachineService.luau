@@ -327,7 +327,7 @@ local function dismantle(player: Player, nodeId: number)
 	-- Spec 3.2: full refund during the tutorial, 70 percent of the original price afterwards.
 	local rate = if player:GetAttribute("TutorialComplete") then NORMAL_REFUND_RATE else 1
 	local refund = math.floor(record.cost * rate)
-	playerState:AdjustCredits(player, refund)
+	playerState:AdjustCredits(player, refund, "Refund")
 	if handler and handler.onRemoved then
 		handler.onRemoved(record)
 	end
@@ -511,7 +511,7 @@ local function placeMachine(
 		return false, message
 	end
 
-	playerState:AdjustCredits(player, -definition.Cost)
+	playerState:AdjustCredits(player, -definition.Cost, "Construction")
 	local node = line:AddNode(definitionId, player)
 	local bodyCFrame = PlacementRules.BodyCFrame(definition, position, rotationSteps, floorTopY)
 	local model, body = buildMachineModel(definition, bodyCFrame, definitionId)
@@ -839,7 +839,7 @@ local function placeConveyor(
 		if playerState:GetCredits(player) < TILE_COST then
 			return false, "You need more credits for another belt tile."
 		end
-		playerState:AdjustCredits(player, -TILE_COST)
+		playerState:AdjustCredits(player, -TILE_COST, "Construction")
 		tiles[key] = { ix = ix, iz = iz, dir = dir, owner = player, model = nil }
 	end
 
@@ -875,7 +875,7 @@ local function removeConveyor(player: Player, rawX: unknown, rawZ: unknown): (bo
 		tile.model:Destroy()
 	end
 	tiles[key] = nil
-	playerState:AdjustCredits(player, TILE_COST)
+	playerState:AdjustCredits(player, TILE_COST, "Refund")
 	local maps = collectPorts()
 	renderAround(ix, iz, maps.feedSides)
 	recomputeBelts()
@@ -1111,7 +1111,7 @@ local function handleEvents(events: { any })
 			continue
 		end
 		if event.type == "Sale" then
-			playerState:AdjustCredits(owner, event.amount)
+			playerState:AdjustCredits(owner, event.amount, "Sales")
 			local firstSale = not owner:GetAttribute("TutorialComplete")
 			playerState:RecordSale(owner)
 			if firstSale then
@@ -1123,7 +1123,7 @@ local function handleEvents(events: { any })
 				notify(owner, string.format("Pellet crate sold: +%d credits.", event.amount))
 			end
 		elseif event.type == "OperatingCost" then
-			playerState:AdjustCredits(owner, -event.amount)
+			playerState:AdjustCredits(owner, -event.amount, "Processing")
 		end
 	end
 end
@@ -1138,6 +1138,44 @@ end
 
 function MachineService:NotifyAll(message: string)
 	noticeEvent:FireAllClients(message)
+end
+
+-- Weather hook (spec 11.3): stretches every machine of one type, for example dryers in rain.
+function MachineService:SetCycleMultiplier(definitionId: string, multiplier: number)
+	line:SetCycleMultiplier(definitionId, multiplier)
+end
+
+-- Units anywhere in the line, used to tell when the factory has nothing left to do.
+function MachineService:CountItems(): number
+	return line:CountItems()
+end
+
+-- Spec 12.3: the original purchase price of everything this player still owns.
+function MachineService:GetInfrastructureValue(player: Player): number
+	local total = 0
+	for _, record in records do
+		if record.owner == player then
+			total += record.cost
+		end
+	end
+	for _, tile in tiles do
+		if tile.owner == player then
+			total += TILE_COST
+		end
+	end
+	return total
+end
+
+-- Current state of every placed processor, keyed by machine id, for bottleneck tracking.
+function MachineService:GetProcessorStates(): { [number]: { name: string, state: string } }
+	local samples = {}
+	for nodeId, record in records do
+		if record.node.kind == "Processor" then
+			samples[nodeId] =
+				{ name = record.node.definition.DisplayName, state = record.node.state }
+		end
+	end
+	return samples
 end
 
 -- Unloads truck cargo into the fixed factory intake. Returns how many bundles fit.
