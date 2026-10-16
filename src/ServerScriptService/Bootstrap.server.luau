@@ -15,6 +15,7 @@ local CommitmentService = require(Services:WaitForChild("CommitmentService"))
 local TruckService = require(Services:WaitForChild("TruckService"))
 local WorldLabelService = require(Services:WaitForChild("WorldLabelService"))
 local WorldArtService = require(Services:WaitForChild("WorldArtService"))
+local EnvironmentService = require(Services:WaitForChild("EnvironmentService"))
 local WeatherService = require(Services:WaitForChild("WeatherService"))
 local SeasonService = require(Services:WaitForChild("SeasonService"))
 
@@ -37,6 +38,8 @@ world:SetAttribute("WindDirection", GameConfig.Wind.Label)
 -- MachineService creates the shared remotes, so it starts before the services that notify.
 -- Before MachineService, which places the buyer's IN port from its collision block.
 WorldArtService:EnlargeBuyer(world)
+-- After the buyer grows and before MachineService reads the road sizes for placement rules.
+EnvironmentService:Initialize(world)
 MachineService:Initialize(world, PlayerStateService)
 FieldService:Initialize(world, PlayerStateService, SmokeService, GameConfig)
 CommitmentService:Initialize(world, PlayerStateService, SmokeService, MachineService, GameConfig)

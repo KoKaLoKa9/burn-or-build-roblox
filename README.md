@@ -11,6 +11,7 @@ Week 4 P0 season loop, forecast weather, and the end of season results, built ag
 - Week 2 adds the server-authoritative production simulation, free machine placement, conveyors, the factory intake, and pellet sales.
 - Week 3 adds Farm B and Farm C commitments, the truck route terminal, covered buffer storage, staged unlocks, and burn source records.
 - Week 4 adds the 20 minute season clock with the five phases of spec 2.3, one forecast weather event in the stress phase, and the result screen. The Week 2 and Week 3 lines still need their Studio play tests; run all three checklists below.
+- Week 5 so far: Shift to run, the first batch tutorial checklist, walk-up sheaves on Farm B and Farm C, and a generated landscape (`EnvironmentService` and `Flora`): terrain grass, green and flooded paddies, the canal, northern mountains, a pine hill, laterite farm tracks, sugar palms and shade trees, field huts, power poles, and late-afternoon light. It is rebuilt from code on every Play, so it does not appear in edit mode.
 
 ### Week 4 scope
 
