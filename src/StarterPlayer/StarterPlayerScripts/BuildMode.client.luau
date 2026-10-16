@@ -1055,7 +1055,13 @@ local function refreshPanel()
 	if mode == "Place" and selectedId then
 		setHints({
 			{ "LMB", "Place" },
-			{ "R", "Rotate, output faces " .. ROTATION_NAMES[rotationSteps + 1] },
+			{
+				"R",
+				-- Machines without ports (farm machines, the truck terminal) have no output side.
+				if MachineDefinitions[selectedId].NoPorts
+					then "Rotate"
+					else "Rotate, output faces " .. ROTATION_NAMES[rotationSteps + 1],
+			},
 			{ "G", "Grid" },
 			{ "Q", "Cancel" },
 		})
