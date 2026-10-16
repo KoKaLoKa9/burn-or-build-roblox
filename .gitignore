@@ -1,0 +1,11 @@
+.DS_Store
+Thumbs.db
+*.rbxl.lock
+*.rbxlx.lock
+*.log
+sourcemap.json
+roblox.yml
+.vscode/
+.idea/
+temp/
+
