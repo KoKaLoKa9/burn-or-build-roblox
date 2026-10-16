@@ -952,7 +952,8 @@ local function createBuyer(world: Model)
 	createPort(buyer, "InputPort", portCFrame, "IN")
 
 	local node = line:AddNode("BuyerDepot", nil)
-	local statusLabel = createWorldLabel(body, 18, 5.4, body.Size.Y / 2 + 4, 160)
+	-- Sized for the enlarged depot so the board reads as part of the landmark.
+	local statusLabel = createWorldLabel(body, 36, 10.8, body.Size.Y / 2 + 7, 220)
 	register(node, buyer, statusLabel, 0, nil)
 end
 

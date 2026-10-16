@@ -10,7 +10,10 @@ local MachineArt = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 
 local WorldArtService = {}
 
-local function dress(model: Instance?, artName: string)
+-- The pellet buyer is the district's big landmark, much larger than the graybox block.
+local BUYER_SCALE = 2
+
+local function dress(model: Instance?, artName: string, scale: number?)
 	if model == nil or not model:IsA("Model") then
 		return
 	end
@@ -22,14 +25,35 @@ local function dress(model: Instance?, artName: string)
 	if art == nil then
 		return
 	end
+	if scale and scale ~= 1 then
+		-- The art pivot is its bottom centre, so it grows upward and outward from the ground.
+		art:ScaleTo(scale)
+	end
 	art:PivotTo(body.CFrame * CFrame.new(0, -body.Size.Y / 2, 0))
 	art.Parent = model
 	body.Transparency = 1
 end
 
+-- Grows the buyer's collision block before MachineService places its IN port and status board.
+-- The west wall stays put, so the loading dock and any belts to it keep lining up.
+function WorldArtService:EnlargeBuyer(world: Model)
+	local buyer = world:FindFirstChild("PelletBuyer")
+	local body = if buyer then buyer:FindFirstChild("Body") else nil
+	if body == nil or not body:IsA("BasePart") or body:GetAttribute("Enlarged") then
+		return
+	end
+	local oldSize = body.Size
+	local westX = body.Position.X - oldSize.X / 2
+	local groundY = body.Position.Y - oldSize.Y / 2
+	local newSize = oldSize * BUYER_SCALE
+	body.Size = newSize
+	body.CFrame = CFrame.new(westX + newSize.X / 2, groundY + newSize.Y / 2, body.Position.Z)
+	body:SetAttribute("Enlarged", true)
+end
+
 function WorldArtService:Initialize(world: Model)
 	local buyer = world:FindFirstChild("PelletBuyer")
-	dress(buyer, "BuyerDepot")
+	dress(buyer, "BuyerDepot", BUYER_SCALE)
 	-- The buyer's live status board already names it, so the old graybox sign would overlap it.
 	local buyerSign = if buyer then buyer:FindFirstChild("MapLabel", true) else nil
 	if buyerSign and buyerSign:IsA("BillboardGui") then

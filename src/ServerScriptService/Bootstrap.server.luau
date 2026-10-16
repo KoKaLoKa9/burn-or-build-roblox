@@ -35,6 +35,8 @@ end
 world:SetAttribute("ProjectMilestone", "Week4SeasonLoop")
 world:SetAttribute("WindDirection", GameConfig.Wind.Label)
 -- MachineService creates the shared remotes, so it starts before the services that notify.
+-- Before MachineService, which places the buyer's IN port from its collision block.
+WorldArtService:EnlargeBuyer(world)
 MachineService:Initialize(world, PlayerStateService)
 FieldService:Initialize(world, PlayerStateService, SmokeService, GameConfig)
 CommitmentService:Initialize(world, PlayerStateService, SmokeService, MachineService, GameConfig)
