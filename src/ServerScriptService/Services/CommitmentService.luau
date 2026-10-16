@@ -339,6 +339,10 @@ function CommitmentService:Initialize(
 			charred = false,
 		}
 		views[farmId] = view
+		-- Accept and reject show together on the same pad; stack them so neither covers the
+		-- other (positive Y moves a prompt up). Extend only shows once a promise is made.
+		view.acceptPrompt.UIOffset = Vector2.new(0, 40)
+		view.rejectPrompt.UIOffset = Vector2.new(0, -40)
 
 		-- Rice rows stay as scenery but no longer block walking down the lanes.
 		for _, child in model:GetChildren() do

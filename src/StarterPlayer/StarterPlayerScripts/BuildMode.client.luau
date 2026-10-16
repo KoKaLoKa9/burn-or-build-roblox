@@ -22,6 +22,7 @@ local PipeRoute = require(Shared:WaitForChild("PipeRoute"))
 local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
 local ConveyorTile = require(Shared:WaitForChild("ConveyorTile"))
 local PlacementRules = require(Shared:WaitForChild("PlacementRules"))
+local PaddySites = require(Shared:WaitForChild("PaddySites"))
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
 local UITheme = require(script.Parent:WaitForChild("UITheme"))
 
@@ -55,6 +56,8 @@ local SLOT_KEYS = {
 }
 -- Hotbar order: machines first, then transport. Each slot takes the next number key.
 local CATALOG = { "Dryer", "Shredder", "PelletMill", "CoveredStorage", "TruckTerminal" }
+-- Farm machines stand beside a paddy (Farm A or a bought plot) instead of on the factory floor.
+local FARM_CATALOG = { "Transplanter", "Combine" }
 
 type ItemInfo = { recipe: string, detail: string }
 local ITEM_INFO: { [string]: ItemInfo } = {
@@ -71,6 +74,14 @@ local ITEM_INFO: { [string]: ItemInfo } = {
 	TruckTerminal = {
 		recipe = "Hauls straw from Farm B or C",
 		detail = "8 bundles per trip, place beside a road",
+	},
+	Transplanter = {
+		recipe = "Plants empty paddy rows",
+		detail = "One row every 4 s at the usual seed cost, place beside your paddy",
+	},
+	Combine = {
+		recipe = "Harvests ripe paddy rows",
+		detail = "One row every 5 s for the usual grain, straw still lands on the field",
 	},
 }
 local ROTATION_NAMES = { "east", "north", "west", "south" }
@@ -332,6 +343,15 @@ for _, definitionId in CATALOG do
 		category = "Machines",
 	})
 end
+for _, definitionId in FARM_CATALOG do
+	addItem({
+		key = "Machine:" .. definitionId,
+		kind = "Machine",
+		id = definitionId,
+		name = MachineDefinitions[definitionId].DisplayName,
+		category = "Farm",
+	})
+end
 for _, pipeId in PipeDefinitions.Order do
 	addItem({
 		key = "Transport:" .. pipeId,
@@ -376,8 +396,8 @@ local hotbarItems: { string } = {
 	"Machine:CoveredStorage",
 	"Machine:TruckTerminal",
 	"Transport:Item",
-	"",
-	"",
+	"Machine:Transplanter",
+	"Machine:Combine",
 	"",
 }
 
@@ -1250,6 +1270,7 @@ end
 
 local sectionGrids: { [string]: Frame } = {
 	Machines = createSection(10, "Machines"),
+	Farm = createSection(15, "Farm machines"),
 	Transport = createSection(20, "Transport"),
 	Research = createSection(30, "Research"),
 }
@@ -1855,7 +1876,19 @@ RunService.RenderStepped:Connect(function(deltaTime: number)
 	end
 	ghostPosition = position
 
-	local bodyCFrame = PlacementRules.BodyCFrame(definition, position, rotationSteps, floorTopY)
+	-- Farm machines stand on the ground beside the paddy they would work.
+	local paddies: { PlacementRules.PaddySite } = {}
+	local groundY = floorTopY
+	if definition.PlaceNear == "Paddy" then
+		paddies = PaddySites.Collect(player.UserId)
+		local index = PlacementRules.PaddyFor(
+			PlacementRules.RectAt(definition, position, rotationSteps),
+			paddies,
+			definition.PaddyReach or 12
+		)
+		groundY = if index then paddies[index].groundY else result.Position.Y
+	end
+	local bodyCFrame = PlacementRules.BodyCFrame(definition, position, rotationSteps, groundY)
 	if ghostArt then
 		ghostArt:PivotTo(bodyCFrame * CFrame.new(0, -definition.Size.Y / 2, 0))
 	else
@@ -1879,6 +1912,7 @@ RunService.RenderStepped:Connect(function(deltaTime: number)
 			unlocked = isUnlocked(),
 			roads = roadRects,
 			roadReach = CommitmentDefinitions.Truck.RoadReach,
+			paddies = paddies,
 		}
 	)
 	ghostValid = valid

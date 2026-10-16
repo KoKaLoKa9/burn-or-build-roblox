@@ -5,6 +5,10 @@
 -- Storage buffers one straw type, Terminal has no ports and runs truck trips.
 -- ExhaustOffset is the steam stack top on the imported model, from the base center in studs.
 -- UnlockAfterFirstSale follows spec 12.2: storage and trucks unlock after the first pellet sale.
+-- Farm machines (Kind Farm) stand beside a paddy instead of on the factory floor. PlaceNear names
+-- the site, PaddyReach is the widest gap allowed between the machine and the paddy edge, and
+-- FarmAction is what the machine does to that paddy's rows every WorkSeconds: Plant (paying the
+-- usual seed cost) or Harvest (earning the usual grain). Balance assumptions, tune in playtests.
 return {
 	CollectionPoint = {
 		DisplayName = "Straw collection point",
@@ -84,6 +88,32 @@ return {
 		Cost = 500,
 		Size = { X = 20, Y = 8, Z = 14 },
 		Color = { 168, 92, 52 },
+	},
+	Transplanter = {
+		DisplayName = "Rice transplanter",
+		Kind = "Farm",
+		Placeable = true,
+		NoPorts = true,
+		PlaceNear = "Paddy",
+		PaddyReach = 12,
+		FarmAction = "Plant",
+		WorkSeconds = 4,
+		Cost = 250,
+		Size = { X = 10, Y = 6, Z = 8 },
+		Color = { 46, 140, 124 },
+	},
+	Combine = {
+		DisplayName = "Combine harvester",
+		Kind = "Farm",
+		Placeable = true,
+		NoPorts = true,
+		PlaceNear = "Paddy",
+		PaddyReach = 12,
+		FarmAction = "Harvest",
+		WorkSeconds = 5,
+		Cost = 400,
+		Size = { X = 14, Y = 9, Z = 10 },
+		Color = { 214, 64, 52 },
 	},
 	BuyerDepot = {
 		DisplayName = "Buyer depot",

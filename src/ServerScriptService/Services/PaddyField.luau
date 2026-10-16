@@ -7,6 +7,9 @@
 --
 -- A field may start with straw and a clearing deadline (Farm A's first batch). When the deadline
 -- passes with straw left, the field burns on its own.
+--
+-- PaddyField.new returns a handle so farm machines (the transplanter and the combine) can plant
+-- and harvest the same rows on behalf of their owner. PaddyField.ForModel finds that handle.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -16,7 +19,8 @@ local StrawSheaf = require(script.Parent:WaitForChild("StrawSheaf"))
 
 local PaddyField = {}
 
--- Tag on every paddy model, so the season can tell when crops are still in play.
+-- Tag on every paddy model, so the season can tell when crops are still in play. Build mode and
+-- farm machine placement also find paddies through it.
 PaddyField.Tag = "Paddy"
 
 local UPDATE_SECONDS = 0.5
@@ -90,6 +94,36 @@ export type Options = {
 	onSheafCollected: ((first: boolean) -> ())?,
 }
 
+-- What a farm machine needs to know before it works a row.
+export type Status = {
+	empty: number,
+	growing: number,
+	ripe: number,
+	sheaves: number,
+	clearing: boolean,
+}
+
+export type Handle = {
+	model: Model,
+	strawArea: BasePart,
+	owner: Player?,
+	planting: any,
+	-- Whether this player may farm the paddy (the owner, or anyone on an unowned field).
+	CanUse: (player: Player) -> boolean,
+	Status: () -> Status,
+	-- Plants the first empty row or harvests the first ripe row for this player. Returns
+	-- whether a row was worked and, if not, why. Nothing is told to the player, so a machine
+	-- can call these every tick.
+	PlantNext: (player: Player) -> (boolean, string),
+	HarvestNext: (player: Player) -> (boolean, string),
+}
+
+local handles: { [Model]: Handle } = setmetatable({}, { __mode = "k" }) :: any
+
+function PaddyField.ForModel(model: Instance): Handle?
+	return if model:IsA("Model") then handles[model] else nil
+end
+
 local function now(): number
 	return workspace:GetServerTimeNow()
 end
@@ -149,7 +183,7 @@ local function applyLook(row: Row, look: Look)
 	setLook(row, look.width, look.height, look.color, look.material)
 end
 
-function PaddyField.new(options: Options)
+function PaddyField.new(options: Options): Handle
 	local planting = options.planting
 	local model = options.model
 	local strawArea = options.strawArea
@@ -163,6 +197,8 @@ function PaddyField.new(options: Options)
 	local sheaves: { Model } = {}
 	local rows: { Row } = {}
 
+	-- Build mode reads the owner to tell whether a farm machine may be placed here.
+	model:SetAttribute("OwnerUserId", if options.owner then options.owner.UserId else 0)
 	CollectionService:AddTag(model, PaddyField.Tag)
 	local oldSheaves = model:FindFirstChild("Sheaves")
 	if oldSheaves then
@@ -182,12 +218,24 @@ function PaddyField.new(options: Options)
 	)
 	local board = FarmBoard.Create(options.boardPart, options.boardName, options.title)
 
-	local function allowed(player: Player): boolean
+	local function canUse(player: Player): boolean
 		local owner = options.owner
-		if owner == nil or owner == player then
+		return owner == nil or owner == player
+	end
+
+	local function ownerMessage(): string
+		local owner = options.owner
+		return string.format(
+			"This paddy belongs to %s.",
+			if owner then owner.DisplayName else "another player"
+		)
+	end
+
+	local function allowed(player: Player): boolean
+		if canUse(player) then
 			return true
 		end
-		notify(player, string.format("This paddy belongs to %s.", owner.DisplayName))
+		notify(player, ownerMessage())
 		return false
 	end
 
@@ -394,17 +442,20 @@ function PaddyField.new(options: Options)
 		end)
 	end
 
-	local function plant(player: Player, row: Row)
-		if row.stage ~= "Empty" or not allowed(player) then
-			return
+	-- Plants and harvests return whether the row was worked and, if not, why. The row prompts
+	-- tell the player; farm machines show the reason on their own board instead.
+	local function plant(player: Player, row: Row): (boolean, string)
+		if row.stage ~= "Empty" then
+			return false, "This row is not ready to plant."
+		end
+		if not canUse(player) then
+			return false, ownerMessage()
 		end
 		if #sheaves > 0 or clearing then
-			notify(player, "Clear the straw off the field before you plant.")
-			return
+			return false, "Clear the straw off the field before you plant."
 		end
 		if playerState:GetCredits(player) < planting.SeedCost then
-			notify(player, string.format("Seed for a row costs %d credits.", planting.SeedCost))
-			return
+			return false, string.format("Seed for a row costs %d credits.", planting.SeedCost)
 		end
 		playerState:AdjustCredits(player, -planting.SeedCost, "Rice")
 		row.stage = "Growing"
@@ -412,11 +463,15 @@ function PaddyField.new(options: Options)
 		setLook(row, WIDE, 1, SEEDLING, Enum.Material.LeafyGrass)
 		refreshPrompts()
 		refreshBoard()
+		return true, ""
 	end
 
-	local function harvest(player: Player, row: Row)
-		if row.stage ~= "Ripe" or not allowed(player) then
-			return
+	local function harvest(player: Player, row: Row): (boolean, string)
+		if row.stage ~= "Ripe" then
+			return false, "This row is not ripe yet."
+		end
+		if not canUse(player) then
+			return false, ownerMessage()
 		end
 		row.stage = "Stubble"
 		applyLook(row, STUBBLE_LOOK)
@@ -425,13 +480,6 @@ function PaddyField.new(options: Options)
 		local lane = math.min(row.index, #rows - 1)
 		local pass = batch * 2 + (if row.index > #rows - 1 then 1 else 0)
 		addSheaf(sheafGround(lane, pass), row.index + batch * 17)
-		notify(
-			player,
-			string.format(
-				"Harvested a row: +%d credits of grain. Its straw is on the field.",
-				planting.GrainCredits
-			)
-		)
 		local cropLeft = false
 		for _, other in rows do
 			if other.stage == "Ripe" or other.stage == "Growing" then
@@ -443,6 +491,7 @@ function PaddyField.new(options: Options)
 		end
 		refreshPrompts()
 		refreshBoard()
+		return true, ""
 	end
 
 	refreshPrompts = function()
@@ -500,9 +549,21 @@ function PaddyField.new(options: Options)
 		applyLook(row, if firstBatch then STUBBLE_LOOK else EMPTY_LOOK)
 		prompt.Triggered:Connect(function(player)
 			if row.stage == "Ripe" then
-				harvest(player, row)
+				local ok, reason = harvest(player, row)
+				notify(
+					player,
+					if ok
+						then string.format(
+							"Harvested a row: +%d credits of grain. Its straw is on the field.",
+							planting.GrainCredits
+						)
+						else reason
+				)
 			else
-				plant(player, row)
+				local ok, reason = plant(player, row)
+				if not ok then
+					notify(player, reason)
+				end
 			end
 		end)
 		table.insert(rows, row)
@@ -554,6 +615,58 @@ function PaddyField.new(options: Options)
 			task.wait(UPDATE_SECONDS)
 		end
 	end)
+
+	local function firstRow(stage: string): Row?
+		for _, row in rows do
+			if row.stage == stage then
+				return row
+			end
+		end
+		return nil
+	end
+
+	local handle: Handle = {
+		model = model,
+		strawArea = strawArea,
+		owner = options.owner,
+		planting = planting,
+		CanUse = canUse,
+		Status = function(): Status
+			local status: Status = {
+				empty = 0,
+				growing = 0,
+				ripe = 0,
+				sheaves = #sheaves,
+				clearing = clearing,
+			}
+			for _, row in rows do
+				if row.stage == "Empty" then
+					status.empty += 1
+				elseif row.stage == "Growing" then
+					status.growing += 1
+				elseif row.stage == "Ripe" then
+					status.ripe += 1
+				end
+			end
+			return status
+		end,
+		PlantNext = function(player: Player): (boolean, string)
+			local row = firstRow("Empty")
+			if row == nil then
+				return false, "No empty rows."
+			end
+			return plant(player, row)
+		end,
+		HarvestNext = function(player: Player): (boolean, string)
+			local row = firstRow("Ripe")
+			if row == nil then
+				return false, "No ripe rows."
+			end
+			return harvest(player, row)
+		end,
+	}
+	handles[model] = handle
+	return handle
 end
 
 return PaddyField

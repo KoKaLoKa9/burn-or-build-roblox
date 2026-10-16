@@ -11,11 +11,21 @@ local PlacementRules = {
 
 export type Rect = { minX: number, maxX: number, minZ: number, maxZ: number }
 
--- Extra checks for staged unlocks (spec 12.2) and road access (spec 7.4).
+-- A paddy a farm machine may stand beside. `rect` is the field itself, `fixtures` are the sign,
+-- board, and burn spot in front of it, and `usable` says whether this player may farm it.
+export type PaddySite = {
+	rect: Rect,
+	fixtures: { Rect },
+	usable: boolean,
+	groundY: number,
+}
+
+-- Extra checks for staged unlocks (spec 12.2), road access (spec 7.4), and farm machines.
 export type Context = {
 	unlocked: boolean?,
 	roads: { Rect }?,
 	roadReach: number?,
+	paddies: { PaddySite }?,
 }
 
 function PlacementRules.Footprint(definition: any, rotationSteps: number): (number, number)
@@ -78,6 +88,38 @@ local function gapBetween(a: Rect, b: Rect): number
 	return math.sqrt(dx * dx + dz * dz)
 end
 
+-- Farm machines stand beside a paddy, never on it. Returns the index of the closest paddy within
+-- `reach` of the footprint, or nil and the player-facing reason.
+function PlacementRules.PaddyFor(
+	rect: Rect,
+	paddies: { PaddySite },
+	reach: number
+): (number?, string)
+	local best: number? = nil
+	local bestGap = math.huge
+	for index, site in paddies do
+		if overlaps(rect, site.rect) then
+			return nil, "Farm machines stand beside the paddy, not on it."
+		end
+		for _, fixture in site.fixtures do
+			if overlaps(rect, fixture) then
+				return nil, "Another object blocks this space."
+			end
+		end
+		local gap = gapBetween(rect, site.rect)
+		if gap <= reach and gap < bestGap then
+			best, bestGap = index, gap
+		end
+	end
+	if best == nil then
+		return nil, string.format("Place this beside a paddy, within %d studs of its edge.", reach)
+	end
+	if not paddies[best].usable then
+		return nil, "This paddy belongs to another player."
+	end
+	return best, "Valid placement"
+end
+
 -- Returns whether the placement is valid and, if not, the player-facing reason from spec 3.5.
 function PlacementRules.Validate(
 	definition: any,
@@ -93,7 +135,13 @@ function PlacementRules.Validate(
 	end
 	local rect = PlacementRules.RectAt(definition, position, rotationSteps)
 	local margin = PlacementRules.EdgeMargin
-	if
+	if definition.PlaceNear == "Paddy" then
+		local paddies: { PaddySite } = if context and context.paddies then context.paddies else {}
+		local site, reason = PlacementRules.PaddyFor(rect, paddies, definition.PaddyReach or 12)
+		if site == nil then
+			return false, reason
+		end
+	elseif
 		rect.minX < plot.minX + margin
 		or rect.maxX > plot.maxX - margin
 		or rect.minZ < plot.minZ + margin
@@ -109,7 +157,8 @@ function PlacementRules.Validate(
 	if definition.RequiresRoad then
 		local reach = if context and context.roadReach then context.roadReach else 20
 		local nearRoad = false
-		for _, road in if context and context.roads then context.roads else {} do
+		local roads: { Rect } = if context and context.roads then context.roads else {}
+		for _, road in roads do
 			if gapBetween(rect, road) <= reach then
 				nearRoad = true
 				break

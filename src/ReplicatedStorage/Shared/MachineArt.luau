@@ -2,10 +2,12 @@
 
 -- Imported Blender machine models, shared by the server (placed machines) and the client
 -- (hotbar previews and the placement ghost). Models live in ReplicatedStorage.MachineArt and are
--- named by machine definition id. ServerStorage.MachineArt is still read as a fallback.
+-- named by machine definition id. ServerStorage.MachineArt is still read as a fallback. Farm
+-- machines without an imported model use the part-built art in FarmMachineArt.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local FarmMachineArt = require(script.Parent:WaitForChild("FarmMachineArt"))
 local MachineArtPalette = require(script.Parent:WaitForChild("MachineArtPalette"))
 
 local MachineArt = {}
@@ -29,7 +31,7 @@ local function findSource(definitionId: string): Model?
 end
 
 function MachineArt.Has(definitionId: string): boolean
-	return findSource(definitionId) ~= nil
+	return findSource(definitionId) ~= nil or FarmMachineArt.Has(definitionId)
 end
 
 -- Returns a painted, anchored, non-colliding copy whose pivot is the bottom center of the model,
@@ -37,7 +39,7 @@ end
 function MachineArt.Build(definitionId: string): Model?
 	local source = findSource(definitionId)
 	if source == nil then
-		return nil
+		return FarmMachineArt.Build(definitionId)
 	end
 
 	local art = source:Clone()

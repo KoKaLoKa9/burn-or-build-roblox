@@ -1,13 +1,15 @@
 --!strict
 
--- Top-left player status: a status card (season clock and phase, weather forecast, credits,
--- crates, straw, wind, trust, exposure points) and a farm contracts card (spec 10.2 states and
--- 11.4 burn feedback). Values come from player, farm, and world attributes that the server owns;
+-- Top-left player status. Credits and carried straw stay on screen as two small chips. A Stats
+-- button (or C) opens the rest: a status card (season clock and phase, weather forecast, crates,
+-- wind, trust, exposure points) and a farm contracts card (spec 10.2 states and 11.4 burn
+-- feedback). A red dot on the button flags a new burn or forecast while the panel is closed. Values come from player, farm, and world attributes that the server owns;
 -- this script only displays them. The end of season screen lives in SeasonResultsScreen.client.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
@@ -44,9 +46,186 @@ local function readNumber(attribute: string): number
 	return if typeof(value) == "number" then value else 0
 end
 
+-- Always-on chips -------------------------------------------------------------------------------
+-- Only money and carried straw stay on screen. Everything else waits behind the Stats button.
+
+local CHIP_WIDTH = 168
+
+local function createChip(
+	className: string,
+	name: string,
+	order: number,
+	buildIcon: (Frame) -> ()
+): (GuiObject, TextLabel, UIStroke)
+	local chip = Instance.new(className) :: GuiObject
+	chip.Name = name
+	chip.Size = UDim2.fromOffset(CHIP_WIDTH, 44)
+	chip.BackgroundColor3 = Colors.Panel
+	chip.BackgroundTransparency = 0.08
+	chip.BorderSizePixel = 0
+	chip.LayoutOrder = order
+	chip.Parent = column
+	if chip:IsA("TextButton") then
+		chip.Text = ""
+		chip.AutoButtonColor = true
+	end
+	UITheme.corner(chip, 12)
+	local stroke = UITheme.outline(chip)
+
+	local icon = Instance.new("Frame")
+	icon.Name = "Icon"
+	icon.AnchorPoint = Vector2.new(0, 0.5)
+	icon.Position = UDim2.new(0, 10, 0.5, 0)
+	icon.Size = UDim2.fromOffset(26, 26)
+	icon.BackgroundTransparency = 1
+	icon.Parent = chip
+	buildIcon(icon)
+
+	local value = UITheme.text(chip, {
+		name = "Value",
+		size = UDim2.new(1, -52, 1, 0),
+		font = Fonts.Heavy,
+		textSize = 20,
+	})
+	value.Position = UDim2.fromOffset(44, 0)
+	value.TextTruncate = Enum.TextTruncate.AtEnd
+	return chip, value, stroke
+end
+
+local function iconPart(
+	parent: Instance,
+	name: string,
+	size: UDim2,
+	position: UDim2,
+	color: Color3
+): Frame
+	local frame = Instance.new("Frame")
+	frame.Name = name
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	frame.Size = size
+	frame.Position = position
+	frame.BackgroundColor3 = color
+	frame.BorderSizePixel = 0
+	frame.Parent = parent
+	return frame
+end
+
+-- A gold coin with a rim and a small shine.
+local function coinIcon(icon: Frame)
+	local coin =
+		iconPart(icon, "Coin", UDim2.fromScale(1, 1), UDim2.fromScale(0.5, 0.5), Colors.Gold)
+	UITheme.corner(coin, 13)
+	UITheme.outline(coin, Color3.fromRGB(176, 124, 30), 0, 2)
+	local rim =
+		iconPart(coin, "Rim", UDim2.fromOffset(14, 14), UDim2.fromScale(0.5, 0.5), Colors.Gold)
+	rim.BackgroundTransparency = 1
+	UITheme.corner(rim, 7)
+	UITheme.outline(rim, Color3.fromRGB(196, 140, 40), 0, 1.5)
+	local shine =
+		iconPart(coin, "Shine", UDim2.fromOffset(5, 5), UDim2.fromOffset(8, 7), Color3.new(1, 1, 1))
+	shine.BackgroundTransparency = 0.35
+	UITheme.corner(shine, 3)
+end
+
+-- A tied bundle of rice straw.
+local function strawIcon(icon: Frame)
+	for index, rotation in { -14, 0, 14 } do
+		local stalk = iconPart(
+			icon,
+			"Stalk" .. index,
+			UDim2.fromOffset(6, 24),
+			UDim2.fromScale(0.5, 0.5),
+			if index == 2 then Color3.fromRGB(240, 208, 118) else Colors.Straw
+		)
+		stalk.Rotation = rotation
+		UITheme.corner(stalk, 3)
+	end
+	local tie = iconPart(
+		icon,
+		"Tie",
+		UDim2.fromOffset(16, 4),
+		UDim2.fromScale(0.5, 0.56),
+		Color3.fromRGB(139, 98, 52)
+	)
+	UITheme.corner(tie, 2)
+end
+
+-- Three rising bars.
+local function statsIcon(icon: Frame)
+	for index, height in { 10, 16, 22 } do
+		local bar = iconPart(
+			icon,
+			"Bar" .. index,
+			UDim2.fromOffset(6, height),
+			UDim2.new(0, 4 + (index - 1) * 9, 1, -2),
+			Colors.Teal
+		)
+		bar.AnchorPoint = Vector2.new(0, 1)
+		UITheme.corner(bar, 2)
+	end
+end
+
+local _, creditsValue = createChip("Frame", "Credits", 1, coinIcon)
+local _, strawValue = createChip("Frame", "Carrying", 2, strawIcon)
+local statsChip, statsLabel, statsStroke = createChip("TextButton", "StatsButton", 3, statsIcon)
+local statsButton = statsChip :: TextButton
+statsLabel.Text = "STATS"
+statsLabel.TextSize = 16
+local statsKey = UITheme.keyCap(statsButton, "C")
+statsKey.AnchorPoint = Vector2.new(1, 0.5)
+statsKey.Position = UDim2.new(1, -10, 0.5, 0)
+-- A red dot on the button when something new (a burn, a forecast) arrives while it is closed.
+local unreadDot = iconPart(
+	statsButton,
+	"Unread",
+	UDim2.fromOffset(10, 10),
+	UDim2.fromOffset(34, 10),
+	Colors.Danger
+)
+unreadDot.Visible = false
+UITheme.corner(unreadDot, 5)
+
+-- Everything else lives in this panel under the chips.
+local statsPanel = Instance.new("Frame")
+statsPanel.Name = "StatsPanel"
+statsPanel.Size = UDim2.fromOffset(CARD_WIDTH, 0)
+statsPanel.AutomaticSize = Enum.AutomaticSize.Y
+statsPanel.BackgroundTransparency = 1
+statsPanel.LayoutOrder = 4
+statsPanel.Visible = false
+statsPanel.Parent = column
+UITheme.list(statsPanel, 10)
+
+local statsOpen = false
+local function setStatsOpen(open: boolean)
+	statsOpen = open
+	statsPanel.Visible = open
+	statsStroke.Color = if open then Colors.Gold else Colors.Outline
+	statsStroke.Transparency = if open then 0 else 0.88
+	statsStroke.Thickness = if open then 2 else 1
+	if open then
+		unreadDot.Visible = false
+	end
+end
+
+local function markUnread()
+	if not statsOpen then
+		unreadDot.Visible = true
+	end
+end
+
+statsButton.Activated:Connect(function()
+	setStatsOpen(not statsOpen)
+end)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if not gameProcessed and input.KeyCode == Enum.KeyCode.C then
+		setStatsOpen(not statsOpen)
+	end
+end)
+
 -- Status card ---------------------------------------------------------------------------------
 
-local statusCard = UITheme.card("StatusCard", column, CARD_WIDTH)
+local statusCard = UITheme.card("StatusCard", statsPanel, CARD_WIDTH)
 statusCard.LayoutOrder = 1
 UITheme.padding(statusCard, 14, 14)
 UITheme.list(statusCard, 10)
@@ -117,10 +296,8 @@ local function createTile(order: number, caption: string): (TextLabel, TextLabel
 	return value, captionLabel
 end
 
-local creditsValue = createTile(1, "Credits")
-local cratesValue = createTile(2, "Crates sold")
-local strawValue = createTile(3, "Carrying")
-local windValue, windCaption = createTile(4, "Wind")
+local cratesValue = createTile(1, "Crates sold")
+local windValue, windCaption = createTile(2, "Wind")
 windValue.TextSize = 16
 
 local function createMeter(order: number, caption: string, color: Color3): (TextLabel, Frame)
@@ -385,8 +562,15 @@ local WEATHER_STYLE: { [string]: WeatherStyle } = {
 	Cleared = { title = "WEATHER", color = Colors.Muted },
 }
 
+local lastWeatherState: any = nil
 local function refreshForecast()
 	local state = world:GetAttribute("WeatherState")
+	if state ~= lastWeatherState then
+		lastWeatherState = state
+		if state == "Forecast" or state == "Active" then
+			markUnread()
+		end
+	end
 	local name = world:GetAttribute("WeatherName")
 	local style = if typeof(state) == "string" then WEATHER_STYLE[state] else nil
 	if style == nil or typeof(name) ~= "string" then
@@ -424,7 +608,7 @@ end)
 
 -- Contracts card ------------------------------------------------------------------------------
 
-local contractsCard = UITheme.card("ContractsCard", column, CARD_WIDTH)
+local contractsCard = UITheme.card("ContractsCard", statsPanel, CARD_WIDTH)
 contractsCard.LayoutOrder = 2
 UITheme.padding(contractsCard, 12, 14)
 UITheme.list(contractsCard, 8)
@@ -596,7 +780,10 @@ end
 task.spawn(function()
 	local records = ReplicatedStorage:WaitForChild("BurnRecords", math.huge)
 	if records then
-		records.ChildAdded:Connect(showBurnRecord)
+		records.ChildAdded:Connect(function(record)
+			showBurnRecord(record)
+			markUnread()
+		end)
 		local children = records:GetChildren()
 		if #children > 0 then
 			showBurnRecord(children[#children])

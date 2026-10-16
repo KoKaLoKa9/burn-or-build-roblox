@@ -17,6 +17,7 @@ local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
 local ConveyorTile = require(Shared:WaitForChild("ConveyorTile"))
 local MachineDefinitions = require(Shared:WaitForChild("MachineDefinitions"))
 local PlacementRules = require(Shared:WaitForChild("PlacementRules"))
+local PaddySites = require(Shared:WaitForChild("PaddySites"))
 
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
 
@@ -49,6 +50,8 @@ type MachineRecord = {
 	cost: number,
 	owner: Player?,
 	exhaust: ParticleEmitter?,
+	-- Farm machines only: the paddy the machine works.
+	paddy: Model?,
 }
 
 -- Hooks another service registers for a machine Kind.
@@ -494,6 +497,7 @@ local function placeMachine(
 	for _, rect in tileRects() do
 		table.insert(blockerList, rect)
 	end
+	local paddies, paddyModels = PaddySites.Collect(player.UserId)
 	local ok, message = PlacementRules.Validate(
 		definition,
 		position,
@@ -505,15 +509,28 @@ local function placeMachine(
 			unlocked = player:GetAttribute("TutorialComplete") == true,
 			roads = roadRects,
 			roadReach = CommitmentDefinitions.Truck.RoadReach,
+			paddies = paddies,
 		}
 	)
 	if not ok then
 		return false, message
 	end
+	-- Farm machines stand on the ground beside their paddy and remember which one they work.
+	local groundY = floorTopY
+	local paddy: Model? = nil
+	if definition.PlaceNear == "Paddy" then
+		local rect = PlacementRules.RectAt(definition, position, rotationSteps)
+		local index, reason = PlacementRules.PaddyFor(rect, paddies, definition.PaddyReach or 12)
+		if index == nil then
+			return false, reason
+		end
+		groundY = paddies[index].groundY
+		paddy = paddyModels[index]
+	end
 
 	playerState:AdjustCredits(player, -definition.Cost, "Construction")
 	local node = line:AddNode(definitionId, player)
-	local bodyCFrame = PlacementRules.BodyCFrame(definition, position, rotationSteps, floorTopY)
+	local bodyCFrame = PlacementRules.BodyCFrame(definition, position, rotationSteps, groundY)
 	local model, body = buildMachineModel(definition, bodyCFrame, definitionId)
 	local compact = definition.Kind == "Processor"
 	local statusLabel = createWorldLabel(
@@ -524,6 +541,7 @@ local function placeMachine(
 		90
 	)
 	register(node, model, statusLabel, definition.Cost, player)
+	records[node.id].paddy = paddy
 	if compact then
 		records[node.id].exhaust = createExhaust(body, definition)
 	end
@@ -545,7 +563,11 @@ local function placeMachine(
 		end)
 		table.insert(prompts, materialPrompt)
 	end
-	if definition.Kind == "Processor" or definition.Kind == "Storage" then
+	if
+		definition.Kind == "Processor"
+		or definition.Kind == "Storage"
+		or definition.Kind == "Farm"
+	then
 		local action = if definition.Kind == "Storage"
 			then "Pause / resume output"
 			else "Pause / resume"

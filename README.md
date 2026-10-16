@@ -14,6 +14,7 @@ Week 4 P0 season loop, forecast weather, and the end of season results, built ag
 - Week 5 so far: Shift to run, the first batch tutorial checklist, walk-up sheaves on Farm B and Farm C, and a generated landscape (`EnvironmentService` and `Flora`): terrain grass, green and flooded paddies, the canal, northern mountains, a pine hill, laterite farm tracks, sugar palms and shade trees, field huts, power poles, and late-afternoon light. It is rebuilt from code on every Play, so it does not appear in edit mode.
 - Week 5 replanting: once your field is clear (collected or burned), plant its nine rows one by one. Rice grows in two minutes, harvest pays grain and leaves a new batch of straw, and the burn or build choice comes back with every batch. Only the first batch has the deadline and counts as the field result in the season report; grain and seed show as "Rice harvest" in the profit causes.
 - Week 5 paddy plots: three lots between the main road and the factory (`GameConfig.Plots`) are for sale at 300 credits each. Hold E at a lot's FOR SALE sign to buy it; it becomes a five-row paddy that runs the same cycle as your field (`PaddyField`), and only the buyer may plant, harvest, or burn it. Plots count as investment next to machines and belts in the season report.
+- Week 5 farm machines, the first automation tier for rice: the rice transplanter (250 credits) plants one empty row every 4 s at the usual seed cost, and the combine harvester (400 credits) harvests one ripe row every 5 s for the usual grain. Both stand on the ground beside a paddy (Farm A or a plot you own, within 12 studs of its edge, never on the field or its sign) and work that paddy for their owner through `PaddyField`. Harvested rows still leave straw, and the transplanter waits until it is cleared, so the burn or build choice stays with the player. F pauses them; the Delete tool refunds them like any machine. They use part-built placeholder art (`FarmMachineArt`) until Blender models are imported.
 
 ### Week 4 scope
 
@@ -83,9 +84,10 @@ Balance assumptions not fixed by spec v0.2 live in `CommitmentDefinitions.luau`:
 | H (hold) | Allow burning on your own field |
 | B | Open the inventory: drag items onto hotbar slots 1 to 9, or drag a hotbar item off to put it away |
 | Shift (hold) | Run, about 2.5 times walking speed |
+| C | Open or close the Stats panel (season clock, forecast, crates, wind, trust, exposure, farm contracts). Credits and carried straw always show at the top left |
 | 1 to 5 | Select a machine (dryer, shredder, pellet mill, storage, truck terminal) |
 | 6 | Conveyor: click to lay a tile, or hold and drag to lay a line that turns with the drag (5 credits per tile) |
-| 7, 8 | Fluid and gas pipes, reserved for the energy update |
+| 7, 8 | Farm machines: rice transplanter and combine harvester, placed beside your paddy (the fluid and gas pipes for the energy update stay in the inventory) |
 | R | Rotate the machine ghost, or turn the next conveyor tile |
 | Right click | Remove the conveyor tile under the cursor (refunded) |
 | G | Toggle grid snapping |
@@ -159,7 +161,7 @@ Before a checkpoint:
 
 1. Format or check all Luau source with StyLua: `stylua --check src tools tests`
 2. Run Selene with the generated Roblox standard library: `selene src tests`
-3. Run the simulation tests: `lune run tests/ProductionLine.spec.luau` and `lune run tests/ConveyorGrid.spec.luau` and `lune run tests/Commitments.spec.luau` and `lune run tests/Season.spec.luau`
+3. Run the simulation tests: `lune run tests/ProductionLine.spec.luau` and `lune run tests/ConveyorGrid.spec.luau` and `lune run tests/Commitments.spec.luau` and `lune run tests/Season.spec.luau` and `lune run tests/FarmMachines.spec.luau`
 4. Build the project with Rojo: `rojo build -o build-check.rbxlx` (delete the output afterwards)
 5. Open the place in Studio and complete the relevant gameplay test.
 6. Inspect the rendered map and HUD.
@@ -216,6 +218,16 @@ Start from a fresh Play session. Times are minutes since the server started. To 
 14. Check that no screen calls the points PM2.5. The only mention is the disclaimer in the result footer saying the points are not measured PM2.5 concentrations.
 15. Close the results, confirm the SEASON RESULTS button at the top reopens them.
 16. Soft end (third session): reject both farms, burn Farm A with H, and do not build. After minute 16 every field is settled and nothing is left to process; confirm the notice says the season closes in 45 s and the results open early with "Every field was settled and no straw was left to process."
+
+### Week 5 farm machines Studio play test
+
+1. Collect Farm A's opening straw by hand so the field reads READY TO PLANT.
+2. Press 7 (rice transplanter) and move the ghost onto the field: it turns red with "Farm machines stand beside the paddy, not on it." Move it more than 12 studs away: "Place this beside a paddy". Move it onto the grass just beside the field (not on the sign or burn spot): it turns green, sits on the ground, and placing it charges 250 credits.
+3. Within 4 s the transplanter's board reads "Planting" with a progress bar, and one row turns into seedlings every 4 s, 5 credits each, until "Every row is planted".
+4. Press 8 and place the combine harvester beside the same field. Its board reads "Rice is growing". When rows ripen it harvests one every 5 s, pays 30 credits of grain each, and leaves a straw sheaf in the lane.
+5. Once straw lies on the field the transplanter reads "Clear the straw first" and does not plant. Collect the sheaves (or burn with H): it starts planting again on its own.
+6. Press F on a machine to pause it (board reads "Paused") and again to resume. Delete it with X and confirm the refund.
+7. Buy a plot and place a transplanter beside it. In a two-player test, the other player's ghost beside your plot reads "This paddy belongs to another player." and the server refuses it.
 
 ## Publication
 
