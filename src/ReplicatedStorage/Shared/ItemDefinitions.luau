@@ -26,4 +26,9 @@ return {
 		DisplayName = "Straw mushroom basket",
 		Color = Color3.fromRGB(236, 226, 204),
 	},
+	-- Kiln by-product. It leaves by a gas port and is flared until gas pipes exist.
+	Syngas = {
+		DisplayName = "Syngas",
+		Color = Color3.fromRGB(232, 196, 74),
+	},
 }

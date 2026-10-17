@@ -32,6 +32,16 @@ local function buildLine()
 	return line, intake, dryer, shredder, mill, buyer
 end
 
+local function countOf(units, item: string): number
+	local count = 0
+	for _, unit in units do
+		if unit.item == item then
+			count += 1
+		end
+	end
+	return count
+end
+
 local function sum(events, eventType: string): (number, number)
 	local total, count = 0, 0
 	for _, event in events do
@@ -384,6 +394,173 @@ do
 	local buyer = line:AddNode("BuyerDepot", "player")
 	local link, message = line:Connect(kiln.id, buyer.id, 2)
 	check("buyer depot refuses biochar", link == nil, message)
+end
+
+-- Multi-port machines (docs/MachinePorts.md) ---------------------------------------------------
+
+-- The mushroom house layout from MachinePorts.md: straw and water in, mushrooms and spent straw
+-- out. Test-only definitions, so the recipe rules are checked apart from catalog balance.
+local function multiPortDefinitions()
+	local definitions = table.clone(MachineDefinitions) :: any
+	definitions.StrawFeed = {
+		DisplayName = "Straw feed",
+		Kind = "Source",
+		AcceptsItem = "WetStraw",
+		OutputItem = "WetStraw",
+		OutputCapacity = 8,
+	}
+	definitions.WaterTap = {
+		DisplayName = "Water tap",
+		Kind = "Source",
+		AcceptsItem = "Water",
+		OutputItem = "Water",
+		OutputCapacity = 8,
+	}
+	definitions.TwinHouse = {
+		DisplayName = "Twin house",
+		Kind = "Processor",
+		InputItem = "WetStraw",
+		OutputItem = "Mushrooms",
+		InputPerCycle = 1,
+		OutputPerCycle = 2,
+		CycleSeconds = 10,
+		InputCapacity = 2,
+		OutputCapacity = 2,
+		ExtraPorts = {
+			{ Name = "Water", Direction = "In", Item = "Water", PerCycle = 1, Capacity = 2 },
+			{ Name = "Spent", Direction = "Out", Item = "SpentStraw", PerCycle = 1, Capacity = 1 },
+		},
+	}
+	definitions.Compost = {
+		DisplayName = "Compost yard",
+		Kind = "Sink",
+		Prices = { SpentStraw = 5 },
+	}
+	return definitions
+end
+
+-- A recipe waits for every input and names each missing one.
+do
+	local line = ProductionLine.new(multiPortDefinitions())
+	local feed = line:AddNode("StrawFeed")
+	local tap = line:AddNode("WaterTap")
+	local house = line:AddNode("TwinHouse")
+	check("house has four ports", #house.ports == 4, tostring(#house.ports))
+	check("straw reaches the straw port", line:Connect(feed.id, house.id, 1) ~= nil)
+	local refused = line:Connect(tap.id, house.id, 1, nil, "In")
+	check("water cannot use the straw port", refused == nil)
+	local water = line:Connect(tap.id, house.id, 1)
+	check("water finds the second input", water ~= nil and water.toPort.name == "Water")
+	line:Step(0.5)
+	check(
+		"starved reason names both inputs",
+		house.reason == "Missing 1 WetStraw, 1 Water",
+		house.reason
+	)
+	line:Deposit(feed.id, 3)
+	line:Step(5)
+	check("straw alone does not start a cycle", not house.cycling, house.state)
+	check("only water is missing", house.reason == "Missing 1 Water", house.reason)
+	check("straw input stops at its capacity", #house.input == 2, tostring(#house.input))
+	line:Deposit(tap.id, 1)
+	line:Step(3)
+	check("both inputs start the cycle", house.cycling and #house.reserved == 2)
+end
+
+-- A cycle fills every output, and one full output blocks the machine and is named.
+do
+	local line = ProductionLine.new(multiPortDefinitions())
+	local feed = line:AddNode("StrawFeed", "player")
+	local tap = line:AddNode("WaterTap", "player")
+	local house = line:AddNode("TwinHouse", "player")
+	local stall = line:AddNode("MarketStall", "player")
+	assert(line:Connect(feed.id, house.id, 1))
+	assert(line:Connect(tap.id, house.id, 1))
+	check("mushrooms leave by the main port", line:Connect(house.id, stall.id, 1) ~= nil)
+	line:Deposit(feed.id, 4)
+	line:Deposit(tap.id, 4)
+	local all = {}
+	for _ = 1, 60 do
+		for _, event in line:Step(1) do
+			table.insert(all, event)
+		end
+	end
+	local _, sales = sum(all, "Sale")
+	check("first cycle sends 2 baskets to the stall", sales == 2, tostring(sales))
+	check("spent straw waits in its own buffer", countOf(house.output, "SpentStraw") == 1)
+	check("full spent straw output blocks", house.state == "Blocked", house.state)
+	check("blocked reason names the port", house.reason == "SpentStraw output full", house.reason)
+	check("later inputs wait their turn", #house.input == 4, tostring(#house.input))
+
+	local yard = line:AddNode("Compost", "player")
+	local spent = line:Connect(house.id, yard.id, 1)
+	check("second output gets its own belt", spent ~= nil and spent.fromPort.name == "Spent")
+	all = {}
+	for _ = 1, 120 do
+		for _, event in line:Step(1) do
+			table.insert(all, event)
+		end
+	end
+	local revenue, count = sum(all, "Sale")
+	check("4 cycles in all", house.completedCycles == 4, tostring(house.completedCycles))
+	check("6 more baskets and 4 spent straw sold", count == 10, tostring(count))
+	check("revenue counts both products", revenue == 6 * 180 + 4 * 5, tostring(revenue))
+	check("nothing left inside", line:CountItems() == 0, tostring(line:CountItems()))
+end
+
+-- The kiln flares its syngas while no gas pipe is connected, so biochar keeps flowing.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local intake = line:AddNode("CollectionPoint", "player")
+	local dryer = line:AddNode("Dryer", "player")
+	local shredder = line:AddNode("Shredder", "player")
+	local kiln = line:AddNode("PyrolysisKiln", "player")
+	local gas = line:GetPort(kiln, "Gas")
+	check("kiln has a gas port", gas ~= nil and gas.medium == "Gas" and gas.direction == "Out")
+	assert(line:Connect(intake.id, dryer.id, 2))
+	assert(line:Connect(dryer.id, shredder.id, 2))
+	assert(line:Connect(shredder.id, kiln.id, 2))
+	line:Deposit(intake.id, 6)
+	local all = {}
+	for _ = 1, 300 do
+		for _, event in line:Step(1) do
+			table.insert(all, event)
+		end
+	end
+	local _, vented = sum(all, "Vented")
+	check("both cycles ran without a stall", kiln.completedCycles == 2)
+	check("each cycle vents one syngas", vented == 2, tostring(vented))
+	check("biochar waits at the item port", countOf(kiln.output, "Biochar") == 2)
+	check("no syngas is stored", countOf(kiln.output, "Syngas") + #kiln.held == 0)
+	local storage = line:AddNode("CoveredStorage")
+	check("belts cannot take the gas port", line:Connect(kiln.id, storage.id, 1, "Gas") == nil)
+end
+
+-- The buyer depot takes several belts at once, one per loading bay.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local buyer = line:AddNode("BuyerDepot", "player")
+	local mills = {}
+	local links = {}
+	for index = 1, 4 do
+		local mill = line:AddNode("PelletMill", "player")
+		mills[index] = mill
+		links[index] = line:Connect(mill.id, buyer.id, 3)
+	end
+	check("first belt uses the main bay", links[1] ~= nil and links[1].toPort.name == "In")
+	check("second belt uses bay 2", links[2] ~= nil and links[2].toPort.name == "In2")
+	check("third belt uses bay 3", links[3] ~= nil and links[3].toPort.name == "In3")
+	check("a fourth belt is refused", links[4] == nil)
+	check("main bay is still the inLink", buyer.inLink == links[1])
+	for index = 1, 3 do
+		table.insert(mills[index].output, { id = 1000 + index, item = "PelletCrate", owner = "p" })
+	end
+	local revenue, sales = sum(line:Step(10), "Sale")
+	check("crates from all three belts sell", sales == 3 and revenue == 450, tostring(sales))
+	check("an empty bay belt disconnects", line:Disconnect(links[2].id))
+	local again = line:Connect(mills[4].id, buyer.id, 3, nil, "In2")
+	check("a freed bay takes a new belt", again ~= nil and again.toPort.name == "In2")
+	check("the depot holds three links", #line:LinksOf(buyer) == 3)
 end
 
 print(string.format("\n%d passed, %d failed", passes, failures))

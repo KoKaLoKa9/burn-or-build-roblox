@@ -13,6 +13,11 @@
 -- how many one player may own. A Sink with Prices buys every listed item at its own price, and
 -- InputOnly gives a placed machine an IN port but no OUT port. ExhaustPart names the part of the
 -- imported model that steam or flare rises from, when there is no fixed ExhaustOffset.
+-- Ports (docs/MachinePorts.md): a machine with ports has a primary IN on its West side and OUT on
+-- its East side, built from InputItem, OutputItem, InputPerCycle and so on. ExtraPorts lists more:
+-- Name, Direction (In or Out), Medium (Item, Fluid, Gas), Item, PerCycle, Capacity, Side and
+-- Offset (studs along that side, in the unturned frame). Vent lets an unconnected Out port release
+-- its units into the air instead of blocking the machine.
 return {
 	CollectionPoint = {
 		DisplayName = "Straw collection point",
@@ -150,8 +155,9 @@ return {
 		Size = { X = 16, Y = 10, Z = 14 },
 		Color = { 200, 180, 140 },
 	},
-	-- Tier 2 (soil): pyrolysis turns shredded straw into biochar. The syngas by-product is flared
-	-- for now; gas pipes can carry it to a dryer later (docs/MachinePorts.md).
+	-- Tier 2 (soil): pyrolysis turns shredded straw into biochar. The syngas by-product leaves by
+	-- a gas port and is flared while no gas pipe is connected; gas pipes can carry it to a dryer
+	-- later (docs/MachinePorts.md).
 	PyrolysisKiln = {
 		DisplayName = "Pyrolysis kiln",
 		Kind = "Processor",
@@ -167,6 +173,19 @@ return {
 		OutputCapacity = 2,
 		OperatingCostPerCycle = 10,
 		Size = { X = 18, Y = 14, Z = 16 },
+		ExtraPorts = {
+			{
+				Name = "Gas",
+				Direction = "Out",
+				Medium = "Gas",
+				Item = "Syngas",
+				PerCycle = 1,
+				Capacity = 1,
+				Vent = true,
+				Side = "North",
+				Offset = 4,
+			},
+		},
 		ExhaustPart = "PK_ChimneyCap",
 		Flare = true,
 		Color = { 60, 70, 68 },
@@ -207,5 +226,10 @@ return {
 		AcceptsItem = "PelletCrate",
 		SalePrice = 150,
 		Prices = { PelletCrate = 150 },
+		-- Three loading bays on the west wall, so several lines can deliver at once.
+		ExtraPorts = {
+			{ Name = "In2", Direction = "In", Side = "West", Offset = -8 },
+			{ Name = "In3", Direction = "In", Side = "West", Offset = 8 },
+		},
 	},
 }

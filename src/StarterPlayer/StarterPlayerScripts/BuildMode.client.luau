@@ -143,7 +143,10 @@ local hoveredCell: { number }? = nil
 
 -- Port visibility -----------------------------------------------------------------------------
 
-local PORT_NAMES = { InputPort = true, OutputPort = true }
+-- Primary ports are InputPort and OutputPort; extra ports add their name, such as OutputPortGas.
+local function isPortName(name: string): boolean
+	return string.match(name, "^InputPort") ~= nil or string.match(name, "^OutputPort") ~= nil
+end
 local portsVisible = false
 
 local function applyPortVisibility(port: BasePart)
@@ -161,25 +164,25 @@ local function setPortsVisible(visible: boolean)
 	end
 	portsVisible = visible
 	for _, descendant in world:GetDescendants() do
-		if descendant:IsA("BasePart") and PORT_NAMES[descendant.Name] then
+		if descendant:IsA("BasePart") and isPortName(descendant.Name) then
 			applyPortVisibility(descendant)
 		end
 	end
 end
 
 world.DescendantAdded:Connect(function(descendant: Instance)
-	if descendant:IsA("BasePart") and PORT_NAMES[descendant.Name] then
+	if descendant:IsA("BasePart") and isPortName(descendant.Name) then
 		applyPortVisibility(descendant)
 	elseif
 		descendant:IsA("BillboardGui")
 		and descendant.Parent
-		and PORT_NAMES[descendant.Parent.Name]
+		and isPortName(descendant.Parent.Name)
 	then
 		descendant.Enabled = portsVisible
 	end
 end)
 for _, descendant in world:GetDescendants() do
-	if descendant:IsA("BasePart") and PORT_NAMES[descendant.Name] then
+	if descendant:IsA("BasePart") and isPortName(descendant.Name) then
 		applyPortVisibility(descendant)
 	end
 end
@@ -1660,9 +1663,9 @@ refreshAccessCells = function()
 		for _, model in container:GetChildren() do
 			local body = if model:IsA("Model") then model.PrimaryPart else nil
 			if body and model:GetAttribute("MachineId") ~= nil then
-				for _, portName in { "OutputPort", "InputPort" } do
-					local port = model:FindFirstChild(portName)
-					if port and port:IsA("BasePart") then
+				-- Every item port is a belt end; gas and fluid ports wait for their pipes.
+				for _, port in model:GetChildren() do
+					if port:IsA("BasePart") and port:GetAttribute("PortMedium") == "Item" then
 						local offset = port.Position - body.Position
 						local flat = Vector3.new(offset.X, 0, offset.Z)
 						if flat.Magnitude > 1e-3 then
@@ -1670,7 +1673,7 @@ refreshAccessCells = function()
 							local point = port.Position + facing * 2
 							local ix, iz = ConveyorGrid.CellOf(point.X, point.Z)
 							local away = ConveyorGrid.DirectionOf(facing.X, facing.Z)
-							local isInput = portName == "InputPort"
+							local isInput = port:GetAttribute("PortDirection") == "In"
 							local dir = if isInput then (away + 2) % 4 else away
 							accessCells[ConveyorGrid.Key(ix, iz)] = { dir = dir, isInput = isInput }
 							buildMarker(folder, ix, iz, dir, isInput)

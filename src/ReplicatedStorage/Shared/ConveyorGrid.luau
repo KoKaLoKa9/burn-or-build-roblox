@@ -19,8 +19,8 @@ ConveyorGrid.Directions = {
 }
 
 export type Tile = { ix: number, iz: number, dir: number }
-export type Port = { key: string, inward: number, id: any }
-export type Chain = { cells: { string }, toId: any?, looped: boolean }
+export type Port = { key: string, inward: number, id: any, name: string? }
+export type Chain = { cells: { string }, toId: any?, toPort: string?, looped: boolean }
 
 function ConveyorGrid.Key(ix: number, iz: number): string
 	return ix .. "," .. iz
@@ -66,6 +66,7 @@ end
 
 -- Follows tiles from `startKey` until they reach an input pointing into its machine.
 -- `inputs` maps an access cell key to the receiving port. `excludeId` skips the sending machine.
+-- `toPort` is the receiving port's name, for machines with more than one input.
 function ConveyorGrid.Trace(
 	tiles: { [string]: Tile },
 	startKey: string,
@@ -84,7 +85,7 @@ function ConveyorGrid.Trace(
 		table.insert(cells, key)
 		local port = inputs[key]
 		if port and port.id ~= excludeId and tile.dir == port.inward then
-			return { cells = cells, toId = port.id, looped = false }
+			return { cells = cells, toId = port.id, toPort = port.name, looped = false }
 		end
 		local nextX, nextZ = ConveyorGrid.Step(tile.ix, tile.iz, tile.dir)
 		key = ConveyorGrid.Key(nextX, nextZ)

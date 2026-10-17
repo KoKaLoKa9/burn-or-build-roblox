@@ -82,9 +82,19 @@ local roadRects: { PlacementRules.Rect } = {}
 local intakeNodeId = 0
 
 type TileRecord = { ix: number, iz: number, dir: number, owner: Player?, model: Model? }
-type BeltLink = { linkId: number, toId: number, signature: string }
+type BeltLink = { linkId: number, toId: number, toPort: string, signature: string }
 local tiles: { [string]: TileRecord } = {}
-local conveyorLinks: { [number]: BeltLink } = {}
+-- Keyed by "<machine id>:<port name>" of the output port the belt starts at.
+local conveyorLinks: { [string]: BeltLink } = {}
+-- A traced chain of tiles from one output port to one input port.
+type BeltWant = {
+	fromId: number,
+	fromPort: string,
+	toId: number,
+	toPort: string,
+	cells: { string },
+	port: BasePart,
+}
 local conveyorFolder: Folder
 -- Filled in by the conveyor section below. A placed or removed machine can complete or break belts.
 local onMachinesChanged: () -> () = function() end
@@ -196,13 +206,67 @@ local function createWorldLabel(
 end
 
 -- Ports carry a word as well as a color so input and output never rely on color alone (spec 14.3).
-local function createPort(model: Model, name: string, cframe: CFrame, text: string): Part
-	local port = newPart(name, Vector3.new(2, 2, 5), cframe, Color3.fromRGB(54, 157, 145), model)
+-- Attributes name the simulation port, so belts and the build tool can find every port.
+local PORT_COLORS: { [string]: Color3 } = {
+	Item = Color3.fromRGB(54, 157, 145),
+	Fluid = Color3.fromRGB(table.unpack(PipeDefinitions.Types.Fluid.Color)),
+	Gas = Color3.fromRGB(table.unpack(PipeDefinitions.Types.Gas.Color)),
+}
+
+local function createPort(
+	model: Model,
+	name: string,
+	cframe: CFrame,
+	text: string,
+	spec: ProductionLine.PortSpec
+): Part
+	local medium = spec.Medium or "Item"
+	local port = newPart(name, Vector3.new(2, 2, 5), cframe, PORT_COLORS[medium], model)
 	port.Material = Enum.Material.Neon
 	port.CanCollide = false
 	port.CanQuery = false
+	port:SetAttribute("PortName", spec.Name)
+	port:SetAttribute("PortDirection", spec.Direction)
+	port:SetAttribute("PortMedium", medium)
 	createWorldLabel(port, 2.6, 1.3, 2, 60).Text = text
 	return port
+end
+
+-- The primary ports keep their old part names; extra ports add their name, such as OutputPortGas.
+local function portPartName(spec: ProductionLine.PortSpec): string
+	local base = if spec.Direction == "In" then "InputPort" else "OutputPort"
+	if spec.Name == "In" or spec.Name == "Out" then
+		return base
+	end
+	return base .. spec.Name
+end
+
+local function portText(spec: ProductionLine.PortSpec): string
+	if spec.Medium and spec.Medium ~= "Item" then
+		return string.upper(spec.Medium)
+	end
+	return if spec.Direction == "In" then "IN" else "OUT"
+end
+
+-- A port sits just outside one side of the body, Offset studs along that side, low on the wall.
+-- North and South ports turn so their long edge runs along the wall.
+local function portCFrame(bodyCFrame: CFrame, size: Vector3, spec: ProductionLine.PortSpec): CFrame
+	local side = spec.Side or (if spec.Direction == "In" then "West" else "East")
+	local offset = spec.Offset or 0
+	local height = -size.Y / 2 + 1.5
+	if side == "North" or side == "South" then
+		local z = if side == "North" then -size.Z / 2 - 1 else size.Z / 2 + 1
+		return bodyCFrame * CFrame.new(offset, height, z) * CFrame.Angles(0, math.rad(90), 0)
+	end
+	local x = if side == "West" then -size.X / 2 - 1 else size.X / 2 + 1
+	return bodyCFrame * CFrame.new(x, height, offset)
+end
+
+local function createMachinePorts(model: Model, bodyCFrame: CFrame, size: Vector3, definition: any)
+	for _, spec in ProductionLine.PortSpecs(definition) do
+		local cframe = portCFrame(bodyCFrame, size, spec)
+		createPort(model, portPartName(spec), cframe, portText(spec), spec)
+	end
 end
 
 local function createPrompt(
@@ -237,12 +301,15 @@ local function stackPrompts(prompts: { ProximityPrompt })
 	end
 end
 
-local function getPort(record: MachineRecord, portName: string): BasePart?
-	local port = record.model:FindFirstChild(portName)
-	if port and port:IsA("BasePart") then
-		return port
+-- Every port part on a machine model.
+local function portParts(record: MachineRecord): { BasePart }
+	local list = {}
+	for _, child in record.model:GetChildren() do
+		if child:IsA("BasePart") and child:GetAttribute("PortDirection") ~= nil then
+			table.insert(list, child)
+		end
 	end
-	return nil
+	return list
 end
 
 local function register(
@@ -314,11 +381,8 @@ local function dismantle(player: Player, nodeId: number)
 		end
 	end
 	local linkIds = {}
-	if record.node.inLink then
-		table.insert(linkIds, record.node.inLink.id)
-	end
-	if record.node.outLink then
-		table.insert(linkIds, record.node.outLink.id)
+	for _, link in line:LinksOf(record.node) do
+		table.insert(linkIds, link.id)
 	end
 	local ok, message = line:RemoveNode(nodeId)
 	if not ok then
@@ -475,20 +539,7 @@ local function buildMachineModel(
 	if definitionId then
 		attachArt(definitionId, model, body)
 	end
-	if definition.NoPorts then
-		return model, body
-	end
-
-	local portHeight = -size.Y / 2 + 1.5
-	createPort(model, "InputPort", bodyCFrame * CFrame.new(-size.X / 2 - 1, portHeight, 0), "IN")
-	if not definition.InputOnly then
-		createPort(
-			model,
-			"OutputPort",
-			bodyCFrame * CFrame.new(size.X / 2 + 1, portHeight, 0),
-			"OUT"
-		)
-	end
+	createMachinePorts(model, bodyCFrame, size, definition)
 	return model, body
 end
 
@@ -657,37 +708,43 @@ local function itemHeight(): number
 end
 
 -- The cell just outside a port, and the side of that cell that faces the machine.
-local function accessCell(record: MachineRecord, portName: string): (string?, number, BasePart?)
-	local port = getPort(record, portName)
-	if port == nil then
-		return nil, 0, nil
-	end
+local function accessCell(record: MachineRecord, port: BasePart): (string, number)
 	local facing = portDirection(record, port)
 	local point = port.Position + facing * 2
 	local ix, iz = ConveyorGrid.CellOf(point.X, point.Z)
 	local towardMachine = (ConveyorGrid.DirectionOf(facing.X, facing.Z) + 2) % 4
-	return ConveyorGrid.Key(ix, iz), towardMachine, port
+	return ConveyorGrid.Key(ix, iz), towardMachine
+end
+
+local function portKey(id: number, portName: string): string
+	return tostring(id) .. ":" .. portName
 end
 
 type PortMaps = {
-	outputs: { { record: MachineRecord, key: string, port: BasePart } },
-	inputs: { [string]: { key: string, inward: number, id: number } },
+	outputs: { { record: MachineRecord, key: string, port: BasePart, name: string } },
+	inputs: { [string]: { key: string, inward: number, id: number, name: string } },
 	feedSides: { [string]: number },
-	inputPorts: { [number]: BasePart },
+	-- Keyed by portKey(machine id, port name).
+	inputPorts: { [string]: BasePart },
 }
 
+-- Belt ends: every item port on every machine. Fluid and gas ports wait for their pipes.
 local function collectPorts(): PortMaps
 	local maps: PortMaps = { outputs = {}, inputs = {}, feedSides = {}, inputPorts = {} }
 	for id, record in records do
-		local outKey, outSide, outPort = accessCell(record, "OutputPort")
-		if outKey and outPort then
-			table.insert(maps.outputs, { record = record, key = outKey, port = outPort })
-			maps.feedSides[outKey] = outSide
-		end
-		local inKey, inSide, inPort = accessCell(record, "InputPort")
-		if inKey and inPort then
-			maps.inputs[inKey] = { key = inKey, inward = inSide, id = id }
-			maps.inputPorts[id] = inPort
+		for _, port in portParts(record) do
+			if port:GetAttribute("PortMedium") ~= "Item" then
+				continue
+			end
+			local name = tostring(port:GetAttribute("PortName"))
+			local key, side = accessCell(record, port)
+			if port:GetAttribute("PortDirection") == "Out" then
+				table.insert(maps.outputs, { record = record, key = key, port = port, name = name })
+				maps.feedSides[key] = side
+			else
+				maps.inputs[key] = { key = key, inward = side, id = id, name = name }
+				maps.inputPorts[portKey(id, name)] = port
+			end
 		end
 	end
 	return maps
@@ -760,53 +817,68 @@ end
 local function recomputeBelts(): { string }
 	local maps = collectPorts()
 	local messages: { string } = {}
-	local wanted: { [number]: { toId: number, cells: { string }, port: BasePart } } = {}
+	local wanted: { [string]: BeltWant } = {}
 	for _, output in maps.outputs do
 		local fromId = output.record.node.id
 		local chain = ConveyorGrid.Trace(tiles :: any, output.key, maps.inputs :: any, fromId)
-		if chain.toId then
-			wanted[fromId] = { toId = chain.toId, cells = chain.cells, port = output.port }
+		if chain.toId and chain.toPort then
+			wanted[portKey(fromId, output.name)] = {
+				fromId = fromId,
+				fromPort = output.name,
+				toId = chain.toId,
+				toPort = chain.toPort,
+				cells = chain.cells,
+				port = output.port,
+			}
 		end
 	end
 
-	for fromId, entry in conveyorLinks do
-		local want = wanted[fromId]
+	for key, entry in conveyorLinks do
+		local want = wanted[key]
 		local alive = line.links[entry.linkId] ~= nil
 		local same = want ~= nil
 			and want.toId == entry.toId
+			and want.toPort == entry.toPort
 			and signatureOf(want.cells) == entry.signature
 		if not alive then
-			conveyorLinks[fromId] = nil
+			conveyorLinks[key] = nil
 		elseif not same then
 			local ok = line:Disconnect(entry.linkId)
 			if ok then
 				removeBelt(entry.linkId)
-				conveyorLinks[fromId] = nil
+				conveyorLinks[key] = nil
 			end
 		end
 	end
 
-	for fromId, want in wanted do
-		if conveyorLinks[fromId] == nil then
+	for key, want in wanted do
+		local fromId = want.fromId
+		if conveyorLinks[key] == nil then
 			local height = itemHeight()
 			local points: { Vector3 } = {
 				Vector3.new(want.port.Position.X, height, want.port.Position.Z),
 			}
-			for _, key in want.cells do
-				local tile = tiles[key]
+			for _, cell in want.cells do
+				local tile = tiles[cell]
 				local x, z = ConveyorGrid.Center(tile.ix, tile.iz)
 				table.insert(points, Vector3.new(x, height, z))
 			end
-			local inPort = maps.inputPorts[want.toId]
+			local inPort = maps.inputPorts[portKey(want.toId, want.toPort)]
 			table.insert(points, Vector3.new(inPort.Position.X, height, inPort.Position.Z))
 			local length = PipeRoute.Length(points)
 
-			local link, message =
-				line:Connect(fromId, want.toId, length / PipeDefinitions.StudsPerSecond)
+			local link, message = line:Connect(
+				fromId,
+				want.toId,
+				length / PipeDefinitions.StudsPerSecond,
+				want.fromPort,
+				want.toPort
+			)
 			if link then
-				conveyorLinks[fromId] = {
+				conveyorLinks[key] = {
 					linkId = link.id,
 					toId = want.toId,
+					toPort = want.toPort,
 					signature = signatureOf(want.cells),
 				}
 				local middle = tiles[want.cells[math.max(1, math.ceil(#want.cells / 2))]]
@@ -962,7 +1034,13 @@ local function createIntake(factory: Model)
 	)
 	body.Material = Enum.Material.Neon
 	model.PrimaryPart = body
-	createPort(model, "OutputPort", CFrame.new(INTAKE_POSITION + Vector3.new(7, 0.5, 0)), "OUT")
+	createPort(
+		model,
+		"OutputPort",
+		CFrame.new(INTAKE_POSITION + Vector3.new(7, 0.5, 0)),
+		"OUT",
+		{ Name = "Out", Direction = "Out", Medium = "Item" }
+	)
 
 	local node = line:AddNode("CollectionPoint", nil)
 	intakeNodeId = node.id
@@ -1011,12 +1089,13 @@ local function createBuyer(world: Model)
 	local body = buyer:FindFirstChild("Body")
 	assert(body and body:IsA("BasePart"), "PelletBuyer Body is missing")
 
-	local portCFrame = body.CFrame * CFrame.new(-body.Size.X / 2 - 1, -body.Size.Y / 2 + 1.5, 0)
-	local existing = buyer:FindFirstChild("InputPort")
-	if existing then
-		existing:Destroy()
+	-- A saved place may still hold ports from an older run; the catalog decides the bays now.
+	for _, child in buyer:GetChildren() do
+		if child:IsA("BasePart") and string.match(child.Name, "^InputPort") then
+			child:Destroy()
+		end
 	end
-	createPort(buyer, "InputPort", portCFrame, "IN")
+	createMachinePorts(buyer, body.CFrame, body.Size, MachineDefinitions.BuyerDepot)
 
 	local node = line:AddNode("BuyerDepot", nil)
 	-- Sized for the enlarged depot so the board reads as part of the landmark.

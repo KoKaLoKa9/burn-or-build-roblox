@@ -1,6 +1,6 @@
 # Machine ports and tier 2 machines (design draft for spec v0.3)
 
-Status: partly built. Week 6 shipped the pyrolysis kiln, mushroom house, straw baler, and market stall with one input and one output each, so they run on the current simulation: the kiln flares its syngas instead of piping it, the mushroom house takes wet straw (soaked straw is how mushrooms are grown) instead of bales plus water, and the baler stands beside a paddy and hands its bales to the player. True multi-port machines (the layouts below) remain the next simulation step.
+Status: partly built. Week 6 shipped the pyrolysis kiln, mushroom house, straw baler, and market stall with one input and one output each, so they run on the current simulation: the kiln flares its syngas instead of piping it, the mushroom house takes wet straw (soaked straw is how mushrooms are grown) instead of bales plus water, and the baler stands beside a paddy and hands its bales to the player. The simulation now supports several ports per machine: ProductionLine gives every port its own link, a recipe consumes PerCycle units at every In port and fills every Out port, and an Out port with Vent releases its units while nothing is connected. Catalog entries list ports beyond the primary IN (West 0) and OUT (East 0) in ExtraPorts. The kiln uses it for its syngas gas port (North +4, vented until gas pipes are Ready), and the buyer depot has three IN bays on its west wall. The mushroom house still runs on the single-port recipe until fluid pipes exist.
 
 ## Port rules
 
