@@ -15,6 +15,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ResearchDefinitions = require(Shared:WaitForChild("ResearchDefinitions"))
+local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
 local ResearchService = {}
 
@@ -114,8 +115,11 @@ local function tick(dt: number)
 		if engineers <= 0 then
 			continue
 		end
+		local world = workspace:FindFirstChild("BurnOrBuildWorld")
+		local smoggy = world ~= nil and world:GetAttribute("SmogActive") == true
+		local rate = if smoggy then GameConfig.Smog.ResearchRate else 1
 		local points = readNumber(player, "ResearchPoints")
-			+ engineers * dt / ResearchDefinitions.SecondsPerPoint
+			+ engineers * rate * dt / ResearchDefinitions.SecondsPerPoint
 		local active = project(player)
 		local definition = ResearchDefinitions.Projects[active]
 		if definition and points >= definition.Points then

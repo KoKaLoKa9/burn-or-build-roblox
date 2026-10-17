@@ -21,6 +21,7 @@ local PlacementRules = require(Shared:WaitForChild("PlacementRules"))
 local PaddySites = require(Shared:WaitForChild("PaddySites"))
 
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
+local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
 local Simulation = script.Parent.Parent:WaitForChild("Simulation")
 local ProductionLine = require(Simulation:WaitForChild("ProductionLine"))
@@ -33,16 +34,8 @@ local NORMAL_REFUND_RATE = 0.7
 local INTAKE_POSITION = Vector3.new(-60, 1.5, 92)
 local ROAD_NAMES = { "MainRoad", "FactoryRoad" }
 local STORAGE_FILTER_CYCLE: { string } = { "WetStraw", "DryStraw", "ShreddedStraw" }
-local BLUEPRINT_DEFINITIONS: { [string]: string } = {
-	DryerPlaceholder = "Dryer",
-	ShredderPlaceholder = "Shredder",
-	PelletMillPlaceholder = "PelletMill",
-}
-local BLUEPRINT_NAMES: { [string]: string } = {
-	DryerPlaceholder = "DRYER",
-	ShredderPlaceholder = "SHREDDER",
-	PelletMillPlaceholder = "PELLET MILL",
-}
+-- The graybox's fixed machine placeholders. Players build their own line, so they are removed.
+local PLACEHOLDER_NAMES = { "DryerPlaceholder", "ShredderPlaceholder", "PelletMillPlaceholder" }
 
 type MachineRecord = {
 	node: any,
@@ -101,7 +94,6 @@ local onMachinesChanged: () -> () = function() end
 local tileRects: () -> { PlacementRules.Rect } = function()
 	return {}
 end
-local blueprints: { [string]: Model } = {}
 
 local playerState: any
 local productionFolder: Folder
@@ -343,27 +335,96 @@ local function removeBelt(linkId: number)
 	end
 end
 
--- Spec 3.4: the blueprint is only a reference. Once a machine of that type stands on the
--- floor, its ghost and label disappear so they never overlap real machines.
-local function refreshBlueprint(definitionId: string)
-	local blueprint: Model? = blueprints[definitionId]
-	if blueprint == nil then
-		return
+-- Inventory: machines a player has bought but not placed. Stored as Owned_<DefinitionId> player
+-- attributes, so the client inventory and hotbar can show the counts.
+local MAX_BUY = 10
+
+local function owned(player: Player, definitionId: string): number
+	local value = player:GetAttribute("Owned_" .. definitionId)
+	return if typeof(value) == "number" then value else 0
+end
+
+local function setOwned(player: Player, definitionId: string, count: number)
+	player:SetAttribute("Owned_" .. definitionId, math.max(0, count))
+end
+
+local function refundRate(player: Player): number
+	-- Spec 3.2: full value back during the tutorial, 70 percent afterwards.
+	return if player:GetAttribute("TutorialComplete") then NORMAL_REFUND_RATE else 1
+end
+
+-- Why this player may not have another of this machine right now, if anything stops it.
+local function purchaseBlock(player: Player, definitionId: string, extra: number): string?
+	local definition = MachineDefinitions[definitionId]
+	if definition == nil or not definition.Placeable then
+		return "That item is not for sale."
 	end
-	local built = false
-	for _, record in records do
-		if record.node.definitionId == definitionId then
-			built = true
-			break
+	if definition.Research and player:GetAttribute("Research_" .. definition.Research) ~= true then
+		local project = ResearchDefinitions.Projects[definition.Research]
+		return string.format(
+			"Research %s at the cooperative office first.",
+			if project then string.lower(project.DisplayName) else definition.Research
+		)
+	end
+	if definition.UnlockAfterFirstSale and player:GetAttribute("TutorialComplete") ~= true then
+		return definition.DisplayName .. " unlocks after your first sale."
+	end
+	if definition.MaxPerPlayer then
+		local total = owned(player, definitionId) + extra
+		for _, record in records do
+			if record.owner == player and record.node.definitionId == definitionId then
+				total += 1
+			end
+		end
+		if total > definition.MaxPerPlayer then
+			return string.format(
+				"You can have only %d %s.",
+				definition.MaxPerPlayer,
+				string.lower(definition.DisplayName)
+			)
 		end
 	end
-	for _, descendant in blueprint:GetDescendants() do
-		if descendant:IsA("BasePart") then
-			descendant.Transparency = if built then 1 else 0.85
-		elseif descendant:IsA("BillboardGui") then
-			descendant.Enabled = not built
-		end
+	return nil
+end
+
+local function buyItem(player: Player, definitionId: unknown, count: unknown): (boolean, string)
+	if typeof(definitionId) ~= "string" or typeof(count) ~= "number" then
+		return false, "Invalid purchase."
 	end
+	local amount = math.clamp(math.floor(count), 1, MAX_BUY)
+	local blocked = purchaseBlock(player, definitionId, amount)
+	if blocked then
+		return false, blocked
+	end
+	local definition = MachineDefinitions[definitionId]
+	local price = definition.Cost * amount
+	if playerState:GetCredits(player) < price then
+		return false, string.format("That costs %d credits.", price)
+	end
+	playerState:AdjustCredits(player, -price, "Construction")
+	setOwned(player, definitionId, owned(player, definitionId) + amount)
+	return true,
+		string.format(
+			"Bought %d %s for %d credits. Find it in your inventory (B).",
+			amount,
+			string.lower(definition.DisplayName),
+			price
+		)
+end
+
+local function sellItem(player: Player, definitionId: unknown): (boolean, string)
+	if typeof(definitionId) ~= "string" or MachineDefinitions[definitionId] == nil then
+		return false, "Invalid sale."
+	end
+	if owned(player, definitionId) <= 0 then
+		return false, "You have none of those in your inventory."
+	end
+	local definition = MachineDefinitions[definitionId]
+	local refund = math.floor(definition.Cost * refundRate(player))
+	setOwned(player, definitionId, owned(player, definitionId) - 1)
+	playerState:AdjustCredits(player, refund, "Refund")
+	return true,
+		string.format("Sold a %s for %d credits.", string.lower(definition.DisplayName), refund)
 end
 
 local function dismantle(player: Player, nodeId: number)
@@ -392,19 +453,22 @@ local function dismantle(player: Player, nodeId: number)
 	for _, linkId in linkIds do
 		removeBelt(linkId)
 	end
-	-- Spec 3.2: full refund during the tutorial, 70 percent of the original price afterwards.
-	local rate = if player:GetAttribute("TutorialComplete") then NORMAL_REFUND_RATE else 1
-	local refund = math.floor(record.cost * rate)
-	playerState:AdjustCredits(player, refund, "Refund")
+	-- The machine goes back into the inventory, ready to place again or sell.
+	setOwned(player, record.node.definitionId, owned(player, record.node.definitionId) + 1)
 	if handler and handler.onRemoved then
 		handler.onRemoved(record)
 	end
 	record.model:Destroy()
 	records[nodeId] = nil
-	refreshBlueprint(record.node.definitionId)
 	onMachinesChanged()
 	blockers[nodeId] = nil
-	notify(player, string.format("Dismantled. Refunded %d credits.", refund))
+	notify(
+		player,
+		string.format(
+			"Picked up the %s. It is back in your inventory (B).",
+			string.lower(record.node.definition.DisplayName)
+		)
+	)
 end
 
 local function togglePause(player: Player, nodeId: number)
@@ -564,6 +628,7 @@ local function placeMachine(
 		return false, "Invalid placement request."
 	end
 	local rotationSteps = math.floor(rotation) % 4
+	local fromInventory = owned(player, definitionId) > 0
 	-- Week 6: research unlocks, and a cap on how many of a machine one player may own.
 	if definition.Research and player:GetAttribute("Research_" .. definition.Research) ~= true then
 		local project = ResearchDefinitions.Projects[definition.Research]
@@ -574,13 +639,13 @@ local function placeMachine(
 			)
 	end
 	if definition.MaxPerPlayer then
-		local owned = 0
+		local placedCount = 0
 		for _, record in records do
 			if record.owner == player and record.node.definitionId == definitionId then
-				owned += 1
+				placedCount += 1
 			end
 		end
-		if owned >= definition.MaxPerPlayer then
+		if placedCount >= definition.MaxPerPlayer and not fromInventory then
 			return false,
 				string.format("You already have a %s.", string.lower(definition.DisplayName))
 		end
@@ -600,7 +665,8 @@ local function placeMachine(
 		rotationSteps,
 		plotRect,
 		blockerList,
-		playerState:GetCredits(player),
+		-- A machine already in the inventory is paid for.
+		if fromInventory then math.huge else playerState:GetCredits(player),
 		{
 			unlocked = player:GetAttribute("TutorialComplete") == true,
 			roads = roadRects,
@@ -624,7 +690,11 @@ local function placeMachine(
 		paddy = paddyModels[index]
 	end
 
-	playerState:AdjustCredits(player, -definition.Cost, "Construction")
+	if fromInventory then
+		setOwned(player, definitionId, owned(player, definitionId) - 1)
+	else
+		playerState:AdjustCredits(player, -definition.Cost, "Construction")
+	end
 	local node = line:AddNode(definitionId, player)
 	local bodyCFrame = PlacementRules.BodyCFrame(definition, position, rotationSteps, groundY)
 	local model, body = buildMachineModel(definition, bodyCFrame, definitionId)
@@ -642,7 +712,6 @@ local function placeMachine(
 		records[node.id].exhaust = createExhaust(body, definition)
 	end
 	blockers[node.id] = PlacementRules.RectAt(definition, position, rotationSteps)
-	refreshBlueprint(definitionId)
 
 	local prompts: { ProximityPrompt } = {}
 	if definition.Kind == "Storage" then
@@ -682,6 +751,9 @@ local function placeMachine(
 	local handler = kindHandlers[definition.Kind]
 	if handler and handler.onPlaced then
 		handler.onPlaced(records[node.id])
+	end
+	if fromInventory then
+		return true, string.format("Placed %s from your inventory.", definition.DisplayName)
 	end
 	return true, string.format("Placed %s for %d credits.", definition.DisplayName, definition.Cost)
 end
@@ -1103,27 +1175,18 @@ local function createBuyer(world: Model)
 	register(node, buyer, statusLabel, 0, nil)
 end
 
--- Spec 3.4: the old fixed placeholders become an optional, see-through starter blueprint.
-local function convertPlaceholdersToBlueprint(factory: Model)
-	for name, title in BLUEPRINT_NAMES do
+-- The graybox placeholders and the neon grid lines are removed: the plot reads as a clean floor,
+-- and grid snapping still works without the lines.
+local function clearFactoryFloor(factory: Model)
+	for _, name in PLACEHOLDER_NAMES do
 		local placeholder = factory:FindFirstChild(name)
-		if placeholder and placeholder:IsA("Model") then
-			placeholder:SetAttribute("Blueprint", true)
-			blueprints[BLUEPRINT_DEFINITIONS[name]] = placeholder
-			for _, descendant in placeholder:GetDescendants() do
-				if descendant:IsA("BasePart") then
-					descendant.Transparency = 0.85
-					descendant.CanCollide = false
-					descendant.CanQuery = false
-				elseif descendant:IsA("TextLabel") then
-					descendant.Text = "BLUEPRINT\n" .. title .. " (optional)"
-					descendant.TextTransparency = 0.25
-				elseif descendant:IsA("BillboardGui") then
-					descendant.AlwaysOnTop = false
-					descendant.LightInfluence = 0
-					descendant.MaxDistance = 90
-				end
-			end
+		if placeholder then
+			placeholder:Destroy()
+		end
+	end
+	for _, child in factory:GetChildren() do
+		if child.Name == "GridLine" then
+			child:Destroy()
 		end
 	end
 end
@@ -1271,18 +1334,34 @@ local function handleEvents(events: { any })
 			continue
 		end
 		if event.type == "Sale" then
-			playerState:AdjustCredits(owner, event.amount, "Sales")
+			local smog = GameConfig.Smog
+			local distrusted = playerState:GetTrust(owner) < smog.LowTrust
+			local amount = if distrusted
+				then math.floor(event.amount * smog.LowTrustPrice + 0.5)
+				else event.amount
+			event.amount = amount
+			playerState:AdjustCredits(owner, amount, "Sales")
 			local firstSale = not owner:GetAttribute("TutorialComplete")
 			playerState:RecordSale(owner)
 			if firstSale then
 				notify(
 					owner,
-					"First crate sold: +150 credits. Covered storage [4] and the truck terminal [5] are unlocked. Refunds are now 70 percent."
+					string.format(
+						"First sale: +%d credits. Covered storage and the truck terminal are unlocked. Refunds are now 70 percent.",
+						amount
+					)
 				)
 			else
 				notify(
 					owner,
-					string.format("%s sold: +%d credits.", itemName(event.item), event.amount)
+					string.format(
+						"%s sold: +%d credits.%s",
+						itemName(event.item),
+						amount,
+						if distrusted
+							then " Low farmer trust cost you the clean-straw premium."
+							else ""
+					)
 				)
 			end
 		elseif event.type == "OperatingCost" then
@@ -1304,6 +1383,10 @@ function MachineService:NotifyAll(message: string)
 end
 
 -- Weather hook (spec 11.3): stretches every machine of one type, for example dryers in rain.
+function MachineService:SetGlobalCycleMultiplier(multiplier: number)
+	line:SetGlobalCycleMultiplier(multiplier)
+end
+
 function MachineService:SetCycleMultiplier(definitionId: string, multiplier: number)
 	line:SetCycleMultiplier(definitionId, multiplier)
 end
@@ -1324,6 +1407,12 @@ function MachineService:GetInfrastructureValue(player: Player): number
 	for _, tile in tiles do
 		if tile.owner == player then
 			total += TILE_COST
+		end
+	end
+	local catalog: { [string]: any } = MachineDefinitions
+	for definitionId, definition in catalog do
+		if definition.Cost then
+			total += owned(player, definitionId) * definition.Cost
 		end
 	end
 	return total
@@ -1377,6 +1466,12 @@ function MachineService:Initialize(world: Model, playerStateService: any)
 	local deleteMachineRemote = Instance.new("RemoteFunction")
 	deleteMachineRemote.Name = "DeleteMachine"
 	deleteMachineRemote.Parent = remotes
+	local buyRemote = Instance.new("RemoteFunction")
+	buyRemote.Name = "BuyItem"
+	buyRemote.Parent = remotes
+	local sellRemote = Instance.new("RemoteFunction")
+	sellRemote.Name = "SellItem"
+	sellRemote.Parent = remotes
 	noticeEvent = Instance.new("RemoteEvent")
 	noticeEvent.Name = "Notice"
 	noticeEvent.Parent = remotes
@@ -1396,7 +1491,7 @@ function MachineService:Initialize(world: Model, playerStateService: any)
 	beltFolder.Name = "Pipes"
 	beltFolder.Parent = productionFolder
 
-	convertPlaceholdersToBlueprint(factory)
+	clearFactoryFloor(factory)
 	local factorySign = floor:FindFirstChild("MapLabel")
 	if factorySign and factorySign:IsA("BillboardGui") then
 		-- The road and spawn are on the -Z side, so the sign greets players at that edge.
@@ -1414,6 +1509,8 @@ function MachineService:Initialize(world: Model, playerStateService: any)
 	createBuyer(world)
 
 	placeRemote.OnServerInvoke = placeMachine
+	buyRemote.OnServerInvoke = buyItem
+	sellRemote.OnServerInvoke = sellItem
 	placeConveyorRemote.OnServerInvoke = placeConveyor
 	removeConveyorRemote.OnServerInvoke = removeConveyor
 	-- The Delete tool. dismantle() checks ownership and emptiness and tells the player the result.

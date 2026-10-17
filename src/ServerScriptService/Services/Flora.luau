@@ -110,18 +110,47 @@ local function lean(rng: Random, degrees: number): CFrame
 	)
 end
 
--- Sugar palm (Borassus), the tall fan palm that stands alone on paddy bunds all over Thailand.
+-- A rounded leaf mass. A block part with a sphere mesh renders as an ellipsoid of the part's
+-- size, which reads far softer than a perfect ball or a flat disc.
+local function blob(model: Model, name: string, size: Vector3, cframe: CFrame, color: Color3): Part
+	local leaves = part(model, name, Enum.PartType.Block, size, cframe, color, Enum.Material.Grass)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = leaves
+	return leaves
+end
+
+-- A shade layer under a canopy: the same mass, darker and a little smaller, so crowns have depth.
+local function shade(color: Color3): Color3
+	return color:Lerp(Color3.fromRGB(28, 52, 30), 0.35)
+end
+
+-- Sugar palm (Borassus), the tall fan palm that stands alone on paddy bunds all over Thailand:
+-- a straight grey trunk, a skirt of dead fronds, and a round crown of stiff fan leaves.
 function Flora.SugarPalm(ground: CFrame, rng: Random): Model
 	local model = newModel("SugarPalm")
 	local height = rng:NextNumber(26, 40)
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
-	local top = base * lean(rng, 5) * CFrame.new(0, height, 0)
+	local top = base * lean(rng, 4) * CFrame.new(0, height, 0)
 	beam(model, "Trunk", base.Position, top.Position, 1.4, PALM_TRUNK, Enum.Material.Wood, true)
+	-- Leaf scars ring the trunk.
+	for index = 1, 4 do
+		local at = base.Position:Lerp(top.Position, index / 5)
+		part(
+			model,
+			"Scar",
+			Enum.PartType.Cylinder,
+			Vector3.new(0.35, 1.6, 1.6),
+			CFrame.new(at) * UPRIGHT,
+			PALM_TRUNK:Lerp(Color3.new(0, 0, 0), 0.15),
+			Enum.Material.Wood
+		)
+	end
 	part(
 		model,
 		"Foot",
 		Enum.PartType.Cylinder,
-		Vector3.new(2.4, 2.4, 2.4),
+		Vector3.new(2.4, 2.6, 2.6),
 		base * CFrame.new(0, 1, 0) * UPRIGHT,
 		PALM_TRUNK,
 		Enum.Material.Wood,
@@ -129,103 +158,109 @@ function Flora.SugarPalm(ground: CFrame, rng: Random): Model
 	)
 
 	local crown = CFrame.new(top.Position) * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
-	part(
-		model,
-		"Skirt",
-		Enum.PartType.Ball,
-		Vector3.new(4.6, 4.6, 4.6),
-		crown * CFrame.new(0, -2.2, 0),
-		DEAD_FROND,
-		Enum.Material.Grass
-	)
-	part(model, "Heart", Enum.PartType.Ball, Vector3.new(3.4, 3.4, 3.4), crown, PALM_TRUNK)
-
-	-- A round fan of fronds, mostly reaching up and out, with a few old ones hanging down.
-	-- Two rings of fronds, each twisted a little, so the crown reads as a round fan ball.
-	local fronds = 16
-	for index = 1, fronds do
-		local yaw = index * TAU / fronds + rng:NextNumber(-0.15, 0.15)
-		local pitch = if index % 2 == 0 then rng:NextNumber(35, 70) else rng:NextNumber(-5, 30)
-		local length = rng:NextNumber(5, 7)
-		part(
-			model,
-			"Frond",
-			Enum.PartType.Block,
-			Vector3.new(rng:NextNumber(3.4, 4.4), 0.3, length),
-			crown
-				* CFrame.Angles(0, yaw, 0)
-				* CFrame.Angles(math.rad(pitch), 0, 0)
-				* CFrame.new(0, 0, -length / 2 - 0.8)
-				* CFrame.Angles(0, 0, rng:NextNumber(-0.6, 0.6)),
-			leafColor(rng)
-		)
-	end
-	for index = 1, 3 do
-		local yaw = index * TAU / 3 + rng:NextNumber(-0.4, 0.4)
+	blob(model, "Skirt", Vector3.new(4.4, 4.4, 4.4), crown * CFrame.new(0, -2, 0), DEAD_FROND)
+	-- Hanging dead fronds under the crown.
+	for index = 1, 5 do
+		local yaw = index * TAU / 5 + rng:NextNumber(-0.3, 0.3)
 		part(
 			model,
 			"OldFrond",
 			Enum.PartType.Block,
-			Vector3.new(3.4, 0.3, 5.5),
+			Vector3.new(2.6, 0.25, 4.6),
 			crown
 				* CFrame.Angles(0, yaw, 0)
-				* CFrame.Angles(math.rad(-65), 0, 0)
-				* CFrame.new(0, 0, -3.6),
-			DEAD_FROND
+				* CFrame.Angles(math.rad(-72), 0, 0)
+				* CFrame.new(0, 0, -3.2),
+			vary(DEAD_FROND, rng, 0.04)
 		)
+	end
+	-- The fan crown: an inner dark ring and an outer lighter ring, each frond a stiff fan tipped
+	-- slightly down at its end.
+	for ring = 1, 2 do
+		local fronds = if ring == 1 then 8 else 12
+		for index = 1, fronds do
+			local yaw = (index + ring * 0.5) * TAU / fronds + rng:NextNumber(-0.12, 0.12)
+			local pitch = if ring == 1 then rng:NextNumber(40, 70) else rng:NextNumber(0, 35)
+			local length = if ring == 1 then rng:NextNumber(4.5, 5.5) else rng:NextNumber(5.5, 7)
+			local color = leafColor(rng)
+			local stalk = crown
+				* CFrame.Angles(0, yaw, 0)
+				* CFrame.Angles(math.rad(pitch), 0, 0)
+				* CFrame.new(0, 0, -length / 2 - 0.8)
+			blob(
+				model,
+				"Frond",
+				Vector3.new(rng:NextNumber(3.8, 4.6), 0.4, length),
+				stalk * CFrame.Angles(0, 0, rng:NextNumber(-0.4, 0.4)),
+				if ring == 1 then shade(color) else color
+			)
+		end
 	end
 	model.PrimaryPart = model:FindFirstChild("Foot") :: BasePart
 	return model
 end
 
--- A wide rain tree with a heavy, low canopy: the big shade tree beside field huts.
+-- A wide rain tree: a thick trunk that forks into heavy limbs under a broad, flat-topped dome.
 function Flora.RainTree(ground: CFrame, rng: Random): Model
 	local model = newModel("RainTree")
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
-	local trunkHeight = rng:NextNumber(8, 13)
-	local top = base * lean(rng, 6) * CFrame.new(0, trunkHeight, 0)
-	beam(
-		model,
-		"Trunk",
-		base.Position,
-		top.Position,
-		rng:NextNumber(1.8, 2.6),
-		BARK,
-		Enum.Material.Wood,
-		true
-	)
-
-	local spread = rng:NextNumber(7, 11)
-	local branches = rng:NextInteger(3, 4)
-	for index = 1, branches do
-		local angle = index * TAU / branches + rng:NextNumber(-0.4, 0.4)
-		local reach = spread * rng:NextNumber(0.6, 0.9)
-		local tip = top.Position
-			+ Vector3.new(math.cos(angle) * reach, rng:NextNumber(3, 6), math.sin(angle) * reach)
-		beam(model, "Branch", top.Position, tip, 1.1, BARK, Enum.Material.Wood)
-		part(
-			model,
-			"Leaves",
-			Enum.PartType.Ball,
-			Vector3.one * rng:NextNumber(9, 13),
-			CFrame.new(tip + Vector3.new(0, 1.5, 0)),
-			leafColor(rng),
-			Enum.Material.Grass
-		)
-	end
+	local trunkHeight = rng:NextNumber(7, 11)
+	local fork = base * lean(rng, 5) * CFrame.new(0, trunkHeight, 0)
+	local girth = rng:NextNumber(2, 2.8)
+	beam(model, "Trunk", base.Position, fork.Position, girth, BARK, Enum.Material.Wood, true)
 	part(
 		model,
+		"Roots",
+		Enum.PartType.Cylinder,
+		Vector3.new(1.2, girth * 1.8, girth * 1.8),
+		base * CFrame.new(0, 0.5, 0) * UPRIGHT,
+		BARK,
+		Enum.Material.Wood
+	)
+
+	local spread = rng:NextNumber(10, 15)
+	local crownY = rng:NextNumber(6, 9)
+	local green = leafColor(rng)
+	local limbs = rng:NextInteger(3, 5)
+	for index = 1, limbs do
+		local angle = index * TAU / limbs + rng:NextNumber(-0.35, 0.35)
+		local reach = spread * rng:NextNumber(0.55, 0.8)
+		local tip = fork.Position
+			+ Vector3.new(
+				math.cos(angle) * reach,
+				crownY * rng:NextNumber(0.6, 0.9),
+				math.sin(angle) * reach
+			)
+		beam(model, "Limb", fork.Position, tip, girth * 0.45, BARK, Enum.Material.Wood)
+		-- Each limb carries a flattened leaf mass; together they form the umbrella.
+		local size = rng:NextNumber(11, 16)
+		blob(
+			model,
+			"Canopy",
+			Vector3.new(size, size * 0.45, size),
+			CFrame.new(tip + Vector3.new(0, 1.2, 0)),
+			vary(green, rng, 0.03)
+		)
+		blob(
+			model,
+			"Underside",
+			Vector3.new(size * 0.85, size * 0.3, size * 0.85),
+			CFrame.new(tip + Vector3.new(0, -0.6, 0)),
+			shade(green)
+		)
+	end
+	blob(
+		model,
 		"Crown",
-		Enum.PartType.Ball,
-		Vector3.one * rng:NextNumber(11, 15),
-		CFrame.new(top.Position + Vector3.new(0, 6, 0)),
-		leafColor(rng),
-		Enum.Material.Grass
+		Vector3.new(spread * 1.5, spread * 0.55, spread * 1.5),
+		CFrame.new(fork.Position + Vector3.new(0, crownY + 2.5, 0)),
+		vary(green, rng, 0.02)
 	)
 	return model
 end
 
--- Umbrella pine with a bare trunk and flat layered crown, like the pines on Phu Kradueng.
+-- Umbrella pine with a bare, slightly crooked trunk and flat cloud-like layers of needles, like
+-- the pines on Phu Kradueng.
 function Flora.UmbrellaPine(ground: CFrame, rng: Random): Model
 	local model = newModel("UmbrellaPine")
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
@@ -235,24 +270,30 @@ function Flora.UmbrellaPine(ground: CFrame, rng: Random): Model
 	beam(model, "Trunk", base.Position, bend.Position, 1.3, PINE_BARK, Enum.Material.Wood, true)
 	beam(model, "Upper", bend.Position, top.Position, 1, PINE_BARK, Enum.Material.Wood)
 
-	local layers = rng:NextInteger(2, 4)
+	local layers = rng:NextInteger(3, 5)
 	for index = 1, layers do
-		local offset = Vector3.new(rng:NextNumber(-3, 3), -(index - 1) * 2.6, rng:NextNumber(-3, 3))
-		local diameter = rng:NextNumber(10, 17) - (index - 1) * 1.5
-		part(
+		local offset = Vector3.new(rng:NextNumber(-4, 4), -(index - 1) * 2.4, rng:NextNumber(-4, 4))
+		local width = rng:NextNumber(9, 15) - (index - 1) * 0.8
+		local color = vary(PINE_LEAVES, rng, 0.03)
+		blob(
 			model,
-			"Canopy",
-			Enum.PartType.Cylinder,
-			Vector3.new(2.2, diameter, diameter),
-			CFrame.new(top.Position + offset) * UPRIGHT,
-			vary(PINE_LEAVES, rng, 0.03),
-			Enum.Material.Grass
+			"Needles",
+			Vector3.new(width, 2.6, width * rng:NextNumber(0.75, 1)),
+			CFrame.new(top.Position + offset) * CFrame.Angles(0, rng:NextNumber(0, TAU), 0),
+			color
+		)
+		blob(
+			model,
+			"Shadow",
+			Vector3.new(width * 0.8, 1.4, width * 0.7),
+			CFrame.new(top.Position + offset - Vector3.new(0, 1, 0)),
+			shade(color)
 		)
 		if index > 1 then
 			beam(
 				model,
 				"Bough",
-				top.Position + Vector3.new(0, -2, 0),
+				top.Position + Vector3.new(0, -1.5, 0),
 				top.Position + offset,
 				0.6,
 				PINE_BARK
@@ -262,54 +303,53 @@ function Flora.UmbrellaPine(ground: CFrame, rng: Random): Model
 	return model
 end
 
--- Frangipani: a short, forked tree with leaf tufts and white flowers at each tip.
+-- Frangipani: a short, forked tree with leaf rosettes and white flowers at each tip.
 function Flora.Frangipani(ground: CFrame, rng: Random): Model
 	local model = newModel("Frangipani")
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
 	local fork = base * lean(rng, 8) * CFrame.new(0, rng:NextNumber(4, 6), 0)
 	beam(model, "Trunk", base.Position, fork.Position, 1, PALE_BARK, Enum.Material.Wood, true)
-	local tips = rng:NextInteger(3, 4)
+	local tips = rng:NextInteger(3, 5)
 	for index = 1, tips do
 		local angle = index * TAU / tips + rng:NextNumber(-0.3, 0.3)
 		local tip = fork.Position
 			+ Vector3.new(math.cos(angle) * 3.5, rng:NextNumber(3, 5), math.sin(angle) * 3.5)
 		beam(model, "Branch", fork.Position, tip, 0.6, PALE_BARK, Enum.Material.Wood)
-		part(
+		local size = rng:NextNumber(4, 5.5)
+		blob(
 			model,
 			"Leaves",
-			Enum.PartType.Ball,
-			Vector3.one * rng:NextNumber(3.6, 4.8),
-			CFrame.new(tip + Vector3.new(0, 1, 0)),
-			leafColor(rng),
-			Enum.Material.Grass
+			Vector3.new(size, size * 0.55, size),
+			CFrame.new(tip + Vector3.new(0, 0.8, 0)),
+			leafColor(rng)
 		)
-		for flower = 1, 2 do
-			local around = flower * math.pi + angle
+		for flower = 1, 3 do
+			local around = flower * TAU / 3 + angle
 			part(
 				model,
 				"Flower",
 				Enum.PartType.Ball,
-				Vector3.one * 0.9,
-				CFrame.new(tip + Vector3.new(math.cos(around) * 1.6, 2.6, math.sin(around) * 1.6)),
-				Color3.fromRGB(250, 246, 226)
+				Vector3.one * 0.8,
+				CFrame.new(tip + Vector3.new(math.cos(around) * 1.4, 1.9, math.sin(around) * 1.4)),
+				if flower == 1 then Color3.fromRGB(255, 214, 120) else Color3.fromRGB(250, 246, 226)
 			)
 		end
 	end
 	return model
 end
 
+-- A low shrub of overlapping leaf mounds.
 function Flora.Bush(ground: CFrame, rng: Random): Model
 	local model = newModel("Bush")
+	local green = leafColor(rng)
 	for _ = 1, rng:NextInteger(2, 4) do
-		local size = rng:NextNumber(3, 6.5)
-		part(
+		local size = rng:NextNumber(3.5, 7)
+		blob(
 			model,
 			"Leaves",
-			Enum.PartType.Ball,
-			Vector3.one * size,
-			ground * CFrame.new(rng:NextNumber(-2, 2), size * 0.3, rng:NextNumber(-2, 2)),
-			leafColor(rng),
-			Enum.Material.Grass
+			Vector3.new(size, size * 0.65, size * rng:NextNumber(0.8, 1)),
+			ground * CFrame.new(rng:NextNumber(-2, 2), size * 0.25, rng:NextNumber(-2, 2)),
+			vary(green, rng, 0.04)
 		)
 	end
 	return model

@@ -13,6 +13,7 @@ SeasonResults.CategoryText = {
 	Sales = "Pellet sales",
 	Rice = "Rice harvest, grain minus seed",
 	Research = "Engineers hired and paid",
+	Fine = "Burn ban fines",
 	Bonus = "Reliability bonuses",
 	Processing = "Processing costs",
 	RouteFee = "Truck route fees",
@@ -23,8 +24,17 @@ SeasonResults.CategoryText = {
 }
 
 -- Spec 12.3: season profit counts these. Construction is investment, shown separately.
-SeasonResults.ProfitCategories =
-	{ "Sales", "Rice", "Bonus", "Processing", "RouteFee", "Extension", "Utility", "Research" }
+SeasonResults.ProfitCategories = {
+	"Sales",
+	"Rice",
+	"Bonus",
+	"Processing",
+	"RouteFee",
+	"Extension",
+	"Utility",
+	"Research",
+	"Fine",
+}
 
 -- Burns that came from the player's own decision or broken promise.
 SeasonResults.PlayerCaused = {

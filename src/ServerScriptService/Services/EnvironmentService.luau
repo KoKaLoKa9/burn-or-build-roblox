@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Flora = require(script.Parent:WaitForChild("Flora"))
+local Houses = require(script.Parent:WaitForChild("Houses"))
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
 local EnvironmentService = {}
@@ -25,6 +26,10 @@ local CANAL: Rect = { minX = -HALF_X, maxX = HALF_X, minZ = -152, maxZ = -136 }
 local FOREST_EDGE_Z = -476
 local PINE_HILL: Rect = { minX = -620, maxX = -380, minZ = 320, maxZ = 540 }
 local PADDY_X, PADDY_Z = 48, 36
+-- Houses line the main road (graybox z 43 to 67) on both sides, so paddies stay out of that band.
+local HOUSE_BAND: Rect = { minX = -HALF_X, maxX = HALF_X, minZ = 10, maxZ = 100 }
+-- Small hamlets out in the countryside.
+local HAMLETS = { { 330, 400 }, { -210, 460 }, { -420, -420 }, { 360, -420 }, { 520, 180 } }
 local PATH_WIDTH = 12
 
 local terrain = Workspace.Terrain
@@ -196,6 +201,7 @@ local function buildPaddies()
 		for z = -HALF_Z, HALF_Z - PADDY_Z, PADDY_Z do
 			local cell = rect(x, x + PADDY_X, z, z + PADDY_Z)
 			local skip = overlaps(cell, DISTRICT)
+				or overlaps(cell, HOUSE_BAND)
 				or overlaps(cell, grow(CANAL, 4))
 				or cell.minZ < FOREST_EDGE_Z
 				or overlaps(cell, PINE_HILL)
@@ -571,6 +577,95 @@ local function scatterOutside(attempts: number, weights: { { any } })
 	end
 end
 
+-- One house, kept off gameplay areas, water, and other scenery. `yaw` turns its front door.
+local function placeHouse(x: number, z: number, yaw: number, roadside: boolean): boolean
+	if not isFree(x, z, Houses.Radius) then
+		return false
+	end
+	local ground = groundAt(x, z)
+	if ground == nil then
+		return false
+	end
+	local model = Houses.Random(ground * CFrame.Angles(0, yaw, 0), rng, roadside)
+	model.Parent = folder
+	table.insert(placed, { x = x, z = z, r = Houses.Radius })
+	return true
+end
+
+-- Houses face the road from both sides of it, then a few hamlets dot the countryside.
+local function placeHouses(world: Model)
+	local mainRoad = findPart(world, "MainRoad")
+	if mainRoad then
+		local north = mainRoad.Position.Z - mainRoad.Size.Z / 2 - 22
+		local south = mainRoad.Position.Z + mainRoad.Size.Z / 2 + 22
+		local x = -HALF_X + 30
+		while x < HALF_X - 30 do
+			if rng:NextNumber() < 0.75 then
+				-- Fronts face -Z, so houses north of the road turn around to face it.
+				placeHouse(x, north + rng:NextNumber(-3, 3), math.pi, true)
+			end
+			if rng:NextNumber() < 0.75 then
+				placeHouse(x + rng:NextNumber(-8, 8), south + rng:NextNumber(-3, 3), 0, true)
+			end
+			x += rng:NextNumber(34, 46)
+		end
+	end
+	for _, hamlet in HAMLETS do
+		for _ = 1, rng:NextInteger(4, 6) do
+			local yaw = rng:NextInteger(0, 3) * math.pi / 2
+			placeHouse(
+				hamlet[1] + rng:NextNumber(-45, 45),
+				hamlet[2] + rng:NextNumber(-45, 45),
+				yaw,
+				false
+			)
+		end
+	end
+end
+
+-- The main road carries on past the district to the map edge on both sides.
+local function buildRoadExtension(world: Model)
+	local mainRoad = findPart(world, "MainRoad")
+	if mainRoad == nil then
+		return
+	end
+	local model = Instance.new("Model")
+	model.Name = "RoadExtension"
+	model.Parent = folder
+	local half = mainRoad.Size.X / 2
+	for side = -1, 1, 2 do
+		local inner = mainRoad.Position.X + side * half
+		local outer = side * HALF_X
+		local length = math.abs(outer - inner)
+		local road = Instance.new("Part")
+		road.Name = "Road"
+		road.Size = Vector3.new(length, mainRoad.Size.Y, mainRoad.Size.Z)
+		road.Position = Vector3.new((inner + outer) / 2, mainRoad.Position.Y, mainRoad.Position.Z)
+		road.Color = mainRoad.Color
+		road.Material = mainRoad.Material
+		road.Anchored = true
+		road.CanQuery = false
+		road.CanTouch = false
+		road.Parent = model
+		table.insert(blockers, grow(footprint(road.CFrame, road.Size), 3))
+		local top = road.Position.Y + road.Size.Y / 2 + 0.03
+		local x = math.min(inner, outer) + 6
+		while x < math.max(inner, outer) - 6 do
+			local dash = Instance.new("Part")
+			dash.Name = "Dash"
+			dash.Size = Vector3.new(7, 0.05, 0.6)
+			dash.Position = Vector3.new(x, top, road.Position.Z)
+			dash.Color = Color3.fromRGB(236, 228, 204)
+			dash.Anchored = true
+			dash.CanCollide = false
+			dash.CanQuery = false
+			dash.CanTouch = false
+			dash.Parent = model
+			x += 16
+		end
+	end
+end
+
 local function plantScenery()
 	local palm, rain, pine = Flora.SugarPalm, Flora.RainTree, Flora.UmbrellaPine
 	local frangipani, bush, rock, stack = Flora.Frangipani, Flora.Bush, Flora.Rock, Flora.StrawStack
@@ -657,6 +752,7 @@ local function buildPowerLine(world: Model)
 			local pole, a, b =
 				Flora.PowerPole(CFrame.new(x, 0, z) * CFrame.Angles(0, math.rad(90), 0))
 			pole.Parent = model
+			table.insert(placed, { x = x, z = z, r = 3 })
 			if lastA and lastB then
 				Flora.Wire(model, lastA, a)
 				Flora.Wire(model, lastB, b)
@@ -774,7 +870,10 @@ function EnvironmentService:Initialize(world: Model)
 
 	buildBunds(world)
 	buildRoadMarks(world)
+	buildRoadExtension(world)
 	buildPowerLine(world)
+	-- Houses go down before trees, so the trees grow around them.
+	placeHouses(world)
 	plantScenery()
 	buildBoundary()
 	world:SetAttribute("EnvironmentBuildSeconds", math.floor((os.clock() - started) * 100) / 100)

@@ -32,13 +32,13 @@ type Step = {
 
 local steps: { Step } = {
 	{
-		title = "Pick up straw",
-		detail = "Walk into Farm A and press E on a straw sheaf.",
+		title = "Clear your field",
+		detail = "Burn it with H: fast, so you plant on time. Or pick up the straw with E to sell later.",
 		done = false,
 	},
 	{
-		title = "Deposit it",
-		detail = "Follow the gold arrow to the collection point and press E.",
+		title = "Replant for grain",
+		detail = "Hold E at a row end to plant. Plant quickly: late rows give less grain.",
 		done = false,
 	},
 	{
@@ -219,23 +219,24 @@ local function complete(index: number)
 	render()
 end
 
-local function readNumber(attribute: string): number
-	local value = player:GetAttribute(attribute)
-	return if typeof(value) == "number" then value else 0
-end
-
-local lastCarried = readNumber("StrawBundles")
-player:GetAttributeChangedSignal("StrawBundles"):Connect(function()
-	local carried = readNumber("StrawBundles")
-	if carried > lastCarried then
-		complete(1)
-	elseif carried < lastCarried then
-		-- Carried straw only goes down by handing it in at the collection point.
-		complete(1)
-		complete(2)
+-- Your field reports how it was cleared and how many rows have been planted.
+local field = world:WaitForChild("Farm_A", 30)
+if field then
+	local function fieldChanged()
+		local state = field:GetAttribute("State")
+		if state == "Collecting" or state == "Collected" or state == "Burned" then
+			complete(1)
+		end
+		local planted = field:GetAttribute("RowsPlanted")
+		if typeof(planted) == "number" and planted > 0 then
+			complete(1)
+			complete(2)
+		end
 	end
-	lastCarried = carried
-end)
+	field:GetAttributeChangedSignal("State"):Connect(fieldChanged)
+	field:GetAttributeChangedSignal("RowsPlanted"):Connect(fieldChanged)
+	fieldChanged()
+end
 
 local function ownsThis(instance: Instance): boolean
 	return instance:GetAttribute("OwnerUserId") == player.UserId

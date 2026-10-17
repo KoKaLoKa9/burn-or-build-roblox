@@ -9,7 +9,7 @@ local PlayerStateService = {}
 local ledgers: { [Player]: SeasonResults.Ledger } = {}
 
 local DEFAULT_ATTRIBUTES: { [string]: any } = {
-	Credits = 1_000,
+	Credits = 600,
 	Trust = 50,
 	Exposure = 0,
 	StrawBundles = 0,

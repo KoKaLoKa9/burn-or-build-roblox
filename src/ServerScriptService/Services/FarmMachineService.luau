@@ -68,6 +68,11 @@ local function check(worker: Worker): PaddyField.Handle?
 		set(worker, "Paused", "Paused")
 		return nil
 	end
+	local scorched = record.model:GetAttribute("ScorchedUntil")
+	if typeof(scorched) == "number" and workspace:GetServerTimeNow() < scorched then
+		set(worker, "Blocked", "Scorched by the field fire")
+		return nil
+	end
 	if not field.CanUse(owner) then
 		set(worker, "Blocked", "This paddy belongs to another player")
 		return nil
@@ -232,6 +237,8 @@ function FarmMachineService:Initialize(machineService: any, playerStateService: 
 				stack = nil,
 			}
 			workers[record.node.id] = worker
+			-- A field fire looks for this to scorch the machines standing beside it.
+			record.model:SetAttribute("FarmMachine", true)
 			local body = record.model.PrimaryPart
 			if record.node.definition.FarmAction == "Bale" and body then
 				local stack = Instance.new("Model")

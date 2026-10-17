@@ -1,7 +1,8 @@
 --!strict
 
 -- Hold Shift to run. The map is wide (fields, factory, buyer, village), so running cuts the walk
--- between them. A small field-of-view kick makes the speed change easy to feel.
+-- between them. A small field-of-view kick makes the speed change easy to feel. Walking through
+-- a burn's smoke plume slows anyone down: coughing, eyes streaming.
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -12,17 +13,21 @@ local RUN_SPEED = 40
 local WALK_FOV = 70
 local RUN_FOV = 80
 local SPRINT_KEYS = { Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift }
+local SMOKE_SLOWDOWN = 0.55
+local SMOKE_RANGE = 14
 
 local player = Players.LocalPlayer
 local held = 0
 local fovTween: Tween? = nil
+local inSmoke = false
 
 local function apply()
 	local running = held > 0
 	local character = player.Character
 	local humanoid = if character then character:FindFirstChildOfClass("Humanoid") else nil
 	if humanoid then
-		humanoid.WalkSpeed = if running then RUN_SPEED else WALK_SPEED
+		humanoid.WalkSpeed = (if running then RUN_SPEED else WALK_SPEED)
+			* (if inSmoke then SMOKE_SLOWDOWN else 1)
 	end
 	local camera = workspace.CurrentCamera
 	-- Leave scripted cameras (cutscenes, results screen) alone.
@@ -66,4 +71,33 @@ end)
 player.CharacterAdded:Connect(function(character)
 	character:WaitForChild("Humanoid")
 	apply()
+end)
+
+-- Smoke check: any plume segment of an active burn near the character.
+task.spawn(function()
+	local world = workspace:WaitForChild("BurnOrBuildWorld")
+	while true do
+		task.wait(0.25)
+		local character = player.Character
+		local root = if character then character:FindFirstChild("HumanoidRootPart") else nil
+		local smoke = world:FindFirstChild("ActiveSmoke")
+		local near = false
+		if root and root:IsA("BasePart") and smoke then
+			for _, segment in smoke:GetChildren() do
+				if
+					segment:IsA("BasePart")
+					and segment.Transparency < 0.95
+					and (segment.Position - root.Position).Magnitude
+						< SMOKE_RANGE + segment.Size.X / 2
+				then
+					near = true
+					break
+				end
+			end
+		end
+		if near ~= inSmoke then
+			inSmoke = near
+			apply()
+		end
+	end
 end)

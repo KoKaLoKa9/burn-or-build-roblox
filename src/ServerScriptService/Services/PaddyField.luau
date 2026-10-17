@@ -213,6 +213,25 @@ function PaddyField.new(options: Options): Handle
 			else ""
 	end
 	model:SetAttribute("Soil", soilLevel().Name)
+	-- Planting window: when the field last became clear. Rows planted late yield less.
+	local clearedAt = 0
+	-- Next-crop effects of how the field was cleared: ash after a burn, pests after a hand clear.
+	local ash = false
+	local pests = false
+	local rowsPlanted = 0
+
+	-- The share of full grain a row planted right now will give.
+	local function yieldNow(): number
+		local late = math.max(0, now() - clearedAt - planting.WindowSeconds)
+		local factor = math.max(planting.MinYield, 1 - late / 60 * planting.LateLossPerMinute)
+		if ash then
+			factor *= 1 + planting.AshBonus
+		end
+		if pests then
+			factor *= 1 - planting.PestLoss
+		end
+		return factor
+	end
 
 	-- Build mode reads the owner to tell whether a farm machine may be placed here.
 	model:SetAttribute("OwnerUserId", if options.owner then options.owner.UserId else 0)
@@ -306,7 +325,7 @@ function PaddyField.new(options: Options): Handle
 					else count(#sheaves, "sheaf", "sheaves") .. " left",
 				if raining
 					then "Raining: straw stays wet"
-					else "Clear it to replant: collect it, or burn it"
+					else "Burn (H): fast, plant on time  ·  Collect (E): keep the straw"
 			)
 		elseif ripe > 0 then
 			FarmBoard.Set(
@@ -333,11 +352,14 @@ function PaddyField.new(options: Options): Handle
 				) .. soilNote()
 			)
 		else
+			local left = clearedAt + planting.WindowSeconds - now()
 			FarmBoard.Set(
 				board,
 				"READY TO PLANT",
 				Colors.Teal,
-				"Field clear",
+				if left > 0
+					then string.format("Plant within %s for full grain", formatClock(left))
+					else string.format("Late: %d%% grain", math.floor(yieldNow() * 100 + 0.5)),
 				string.format("Plant at the row ends: %d credits a row", planting.SeedCost)
 					.. soilNote()
 			)
@@ -393,6 +415,29 @@ function PaddyField.new(options: Options): Handle
 				else Players:GetPlayers()
 			for _, player in told do
 				notify(player, message)
+			end
+		end
+		clearedAt = now()
+		ash = how == "Burned"
+		pests = how == "Collected" and math.random() < planting.PestChance
+		if ash or pests then
+			local told: { Player } = if triggeringPlayer
+				then { triggeringPlayer }
+				elseif options.owner then { options.owner }
+				else Players:GetPlayers()
+			for _, player in told do
+				notify(
+					player,
+					if ash
+						then string.format(
+							"The ash feeds the next crop: +%d%% grain, this harvest only.",
+							math.floor(planting.AshBonus * 100 + 0.5)
+						)
+						else string.format(
+							"Stem borers survived in the stubble: the next crop gives %d%% less grain. Fire would have killed them.",
+							math.floor(planting.PestLoss * 100 + 0.5)
+						)
+				)
 			end
 		end
 		local first = firstBatch
@@ -465,6 +510,32 @@ function PaddyField.new(options: Options): Handle
 		for _, player in blamed do
 			playerState:AdjustTrust(player, -options.burnTrustLoss)
 		end
+		local burnRules = options.gameConfig.Burn
+		if triggeringPlayer and options.world:GetAttribute("BurnBan") == true then
+			-- Smog season: open burning is banned, like the burn bans in northern Thailand.
+			playerState:AdjustCredits(triggeringPlayer, -burnRules.FineCredits, "Fine")
+			notify(
+				triggeringPlayer,
+				string.format(
+					"Burn ban in force: fined %d credits for open burning.",
+					burnRules.FineCredits
+				)
+			)
+		end
+		-- Fire jumps to farm machines standing beside the field and stops them for a while.
+		local production = options.world:FindFirstChild("Production")
+		if production then
+			local area = strawArea.Size / 2
+				+ Vector3.new(burnRules.ScorchRange, 0, burnRules.ScorchRange)
+			for _, machine in production:GetChildren() do
+				if machine:IsA("Model") and machine:GetAttribute("FarmMachine") == true then
+					local offset = strawArea.CFrame:PointToObjectSpace(machine:GetPivot().Position)
+					if math.abs(offset.X) <= area.X and math.abs(offset.Z) <= area.Z then
+						machine:SetAttribute("ScorchedUntil", now() + burnRules.ScorchSeconds)
+					end
+				end
+			end
+		end
 		options.smokeService:BurnField(
 			options.world,
 			options.burnPoint,
@@ -511,7 +582,9 @@ function PaddyField.new(options: Options): Handle
 		row.stage = "Growing"
 		row.plantedAt = now()
 		row.growSeconds = soilLevel().GrowSeconds
-		row.grain = soilLevel().GrainCredits
+		row.grain = math.max(1, math.floor(soilLevel().GrainCredits * yieldNow() + 0.5))
+		rowsPlanted += 1
+		model:SetAttribute("RowsPlanted", rowsPlanted)
 		setLook(row, WIDE, 1, SEEDLING, Enum.Material.LeafyGrass)
 		refreshPrompts()
 		refreshBoard()

@@ -158,16 +158,24 @@ function ProductionLine.new(definitions: { [string]: any })
 	self.events = {} :: { Event }
 	-- Weather can stretch a machine type's cycle time (spec 11.3: rain slows drying).
 	self.cycleMultipliers = {} :: { [string]: number }
+	self.globalMultiplier = 1
 	return self
 end
 
 -- A multiplier of 1 restores the catalog cycle time. Progress already made is kept.
+-- Slows (or speeds) every machine at once, on top of any per-machine multiplier. Smog uses it.
+function ProductionLine:SetGlobalCycleMultiplier(multiplier: number)
+	self.globalMultiplier = multiplier
+end
+
 function ProductionLine:SetCycleMultiplier(definitionId: string, multiplier: number)
 	self.cycleMultipliers[definitionId] = if multiplier == 1 then nil else multiplier
 end
 
 function ProductionLine:CycleSeconds(node: Node): number
-	return node.definition.CycleSeconds * (self.cycleMultipliers[node.definitionId] or 1)
+	return node.definition.CycleSeconds
+		* (self.cycleMultipliers[node.definitionId] or 1)
+		* (self.globalMultiplier or 1)
 end
 
 -- Every unit still inside the line: machine buffers, cycles in progress, and belts.

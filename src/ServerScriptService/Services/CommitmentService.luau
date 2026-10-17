@@ -29,6 +29,7 @@ type FarmView = {
 	-- One standing sheaf per bundle still in the field, walked up to and picked up like Farm A.
 	sheaves: { Model },
 	charred: boolean,
+	burnColor: Color3,
 }
 
 local book: any
@@ -196,6 +197,58 @@ local function refreshFarm(farmId: string)
 	end
 end
 
+-- One standing sheaf per bundle on the farm's field, picked up by hand once a contract is taken.
+-- Called at startup and again whenever the farm replants for a new round.
+local function spawnSheaves(farmId: string)
+	local view = views[farmId]
+	local definition = CommitmentDefinitions.Farms[farmId]
+	local model = view.model
+	local strawArea = model:FindFirstChild("StrawArea") :: BasePart
+	local oldSheaves = model:FindFirstChild("Sheaves")
+	if oldSheaves then
+		oldSheaves:Destroy()
+	end
+	table.clear(view.sheaves)
+	view.charred = false
+	local sheafFolder = Instance.new("Folder")
+	sheafFolder.Name = "Sheaves"
+	sheafFolder.Parent = model
+	for index = 1, definition.Bundles do
+		local sheaf, bundle = StrawSheaf.Build(StrawSheaf.GroundFor(strawArea, index), index)
+		local prompt = createPrompt(
+			bundle,
+			"PickUpPrompt",
+			"Pick up",
+			definition.DisplayName .. " straw",
+			Enum.KeyCode.E,
+			0.3
+		)
+		prompt.MaxActivationDistance = 8
+		prompt.Enabled = false
+		prompt.Triggered:Connect(function(player)
+			if sheaf.Parent == nil then
+				return
+			end
+			local ok, reason = book:CanCollect(farmId, now())
+			if not ok then
+				machineService:Notify(player, reason)
+				return
+			end
+			-- Move this sheaf to the end so the sync removes exactly the one picked up.
+			local position = table.find(view.sheaves, sheaf)
+			if position then
+				table.remove(view.sheaves, position)
+				table.insert(view.sheaves, sheaf)
+			end
+			if CommitmentService:TakeStraw(farmId, 1) > 0 then
+				playerState:AddStraw(player, 1)
+			end
+		end)
+		sheaf.Parent = sheafFolder
+		table.insert(view.sheaves, sheaf)
+	end
+end
+
 local function handleEvents(events: { any })
 	for _, event in events do
 		local farm = book:Get(event.farmId)
@@ -215,13 +268,27 @@ local function handleEvents(events: { any })
 				machineService:Notify(
 					owner,
 					string.format(
-						"%s commitment completed: +%d trust, +%d credits reliability bonus.",
+						"%s commitment completed: +%d trust, +%d credits reliability bonus%s. The farm replants and will need you again.",
 						definition.ShortName,
 						event.trust,
-						event.credits
+						event.credits,
+						if (event.streak or 1) > 1
+							then string.format(" (%d in a row)", event.streak)
+							else ""
 					)
 				)
 			end
+		elseif event.type == "Regrown" then
+			-- A new harvest: fresh straw, standing rice rows, and a clean burn pad.
+			setRiceVisible(view.model, true)
+			view.burnPoint.Color = view.burnColor
+			spawnSheaves(event.farmId)
+			machineService:NotifyAll(
+				string.format(
+					"%s has harvested again: a new straw contract is open.",
+					definition.DisplayName
+				)
+			)
 		elseif event.type == "Burn" then
 			setRiceVisible(view.model, false)
 			view.burnPoint.Color = Color3.fromRGB(62, 58, 54)
@@ -337,6 +404,7 @@ function CommitmentService:Initialize(
 			),
 			sheaves = {},
 			charred = false,
+			burnColor = burnPoint.Color,
 		}
 		views[farmId] = view
 		-- Accept and reject show together on the same pad; stack them so neither covers the
@@ -359,49 +427,19 @@ function CommitmentService:Initialize(
 			strawArea and strawArea:IsA("BasePart"),
 			definition.ModelName .. " StrawArea is missing"
 		)
-		local oldSheaves = model:FindFirstChild("Sheaves")
-		if oldSheaves then
-			oldSheaves:Destroy()
-		end
-		local sheafFolder = Instance.new("Folder")
-		sheafFolder.Name = "Sheaves"
-		sheafFolder.Parent = model
-		for index = 1, definition.Bundles do
-			local sheaf, bundle = StrawSheaf.Build(StrawSheaf.GroundFor(strawArea, index), index)
-			local prompt = createPrompt(
-				bundle,
-				"PickUpPrompt",
-				"Pick up",
-				definition.DisplayName .. " straw",
-				Enum.KeyCode.E,
-				0.3
-			)
-			prompt.MaxActivationDistance = 8
-			prompt.Enabled = false
-			prompt.Triggered:Connect(function(player)
-				if sheaf.Parent == nil then
-					return
-				end
-				local ok, reason = book:CanCollect(farmId, now())
-				if not ok then
-					machineService:Notify(player, reason)
-					return
-				end
-				-- Move this sheaf to the end so the sync removes exactly the one picked up.
-				local position = table.find(view.sheaves, sheaf)
-				if position then
-					table.remove(view.sheaves, position)
-					table.insert(view.sheaves, sheaf)
-				end
-				if self:TakeStraw(farmId, 1) > 0 then
-					playerState:AddStraw(player, 1)
-				end
-			end)
-			sheaf.Parent = sheafFolder
-			table.insert(view.sheaves, sheaf)
-		end
+		spawnSheaves(farmId)
 
 		view.acceptPrompt.Triggered:Connect(function(player)
+			if playerState:GetTrust(player) < gameConfig.Smog.RefuseTrust then
+				machineService:Notify(
+					player,
+					string.format(
+						"%s does not trust the cooperative enough to sign. Win trust back by keeping other promises.",
+						definition.DisplayName
+					)
+				)
+				return
+			end
 			local _, message = book:Accept(farmId, player)
 			machineService:Notify(player, message)
 			handleEvents(book:Drain())

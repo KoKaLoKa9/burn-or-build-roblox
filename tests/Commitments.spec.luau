@@ -246,6 +246,66 @@ do
 	check("cancelled trip charges no fee", find(events, "TripCompleted") == nil)
 end
 
+-- Week 6: a completed farm replants after RegrowSeconds and opens a fresh contract.
+do
+	local book = FarmCommitments.new(CommitmentDefinitions, 0)
+	local farmB = CommitmentDefinitions.Farms.FarmB
+	book:Accept("FarmB", "player")
+	book:Take("FarmB", farmB.Bundles, 10)
+	book:Drain()
+	local early = book:Update(10 + farmB.RegrowSeconds - 1)
+	check("farm stays closed before it regrows", find(early, "Regrown", "FarmB") == nil)
+	local events = book:Update(10 + farmB.RegrowSeconds)
+	local farm = book:Get("FarmB")
+	check("farm regrows after RegrowSeconds", find(events, "Regrown", "FarmB") ~= nil)
+	check(
+		"regrown farm is open with full straw",
+		farm.state == "Available" and farm.remaining == farmB.Bundles and not farm.resolved
+	)
+	check(
+		"regrown farm has the shorter next deadline",
+		farm.deadlineAt == 10 + farmB.RegrowSeconds + farmB.NextDeadlineSeconds
+	)
+	check("regrown farm counts its round", farm.round == 2)
+end
+
+-- Week 6: completing contracts in a row raises the reliability bonus; a miss resets it.
+do
+	local book = FarmCommitments.new(CommitmentDefinitions, 0)
+	local farmB = CommitmentDefinitions.Farms.FarmB
+	local now = 0
+	local bonuses = {}
+	for _ = 1, 2 do
+		book:Accept("FarmB", "player")
+		book:Take("FarmB", farmB.Bundles, now + 1)
+		local completed = find(book:Drain(), "Completed", "FarmB")
+		table.insert(bonuses, completed and completed.credits or 0)
+		now += 1 + farmB.RegrowSeconds
+		book:Update(now)
+	end
+	check("first completion pays the base bonus", bonuses[1] == farmB.ReliabilityBonus)
+	check(
+		"second completion in a row pays 25 percent more",
+		bonuses[2] == math.floor(farmB.ReliabilityBonus * 1.25 + 0.5),
+		tostring(bonuses[2])
+	)
+	-- Accept round three and let it lapse: the streak resets.
+	book:Accept("FarmB", "player")
+	book:Update(now + farmB.NextDeadlineSeconds + 1)
+	check("a missed round resets the streak", book:Get("FarmB").streak == 0)
+end
+
+-- Rejected and burned farms come back too, so the player gets another chance.
+do
+	local book = FarmCommitments.new(CommitmentDefinitions, 0)
+	local farmC = CommitmentDefinitions.Farms.FarmC
+	book:Reject("FarmC", "player")
+	book:Update(C_DEADLINE)
+	local events = book:Update(C_DEADLINE + farmC.RegrowSeconds)
+	check("rejected farm regrows after it burns", find(events, "Regrown", "FarmC") ~= nil)
+	check("regrown farm can be accepted again", (book:Accept("FarmC", "player")))
+end
+
 print(string.format("\n%d passed, %d failed", passes, failures))
 if failures > 0 then
 	error("Commitment tests failed")

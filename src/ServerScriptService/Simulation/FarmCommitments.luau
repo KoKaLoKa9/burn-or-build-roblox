@@ -2,6 +2,11 @@
 
 -- Neighboring farm commitments (spec v0.2 section 10 and 15.2).
 -- Pure Luau with no Roblox instances; the caller passes server time in, so Lune can test it.
+--
+-- Week 6: farms come back. RegrowSeconds after a farm resolves (completed, missed, or burned) it
+-- replants and opens a fresh contract with NextDeadlineSeconds to clear it. Completing contracts
+-- in a row raises the reliability bonus by StreakBonusStep per completion, up to StreakBonusCap;
+-- a missed or unserved round resets the streak. Farms without RegrowSeconds stay closed.
 
 local FarmCommitments = {}
 FarmCommitments.__index = FarmCommitments
@@ -17,6 +22,9 @@ export type Farm = {
 	owner: any,
 	resolved: boolean,
 	burnedBundles: number,
+	resolvedAt: number,
+	round: number,
+	streak: number,
 }
 
 export type Event = {
@@ -28,6 +36,7 @@ export type Event = {
 	quantity: number?,
 	exposure: number?,
 	responsibility: string?,
+	streak: number?,
 }
 
 function FarmCommitments.new(config: any, startTime: number)
@@ -46,6 +55,9 @@ function FarmCommitments.new(config: any, startTime: number)
 			owner = nil,
 			resolved = false,
 			burnedBundles = 0,
+			resolvedAt = 0,
+			round = 1,
+			streak = 0,
 		}
 	end
 	return self
@@ -149,13 +161,13 @@ function FarmCommitments:CanCollect(farmId: string, now: number): (boolean, stri
 		return false, "Unknown farm."
 	end
 	if farm.resolved then
-		return false, farm.definition.DisplayName .. " is closed for this season."
+		return false, farm.definition.DisplayName .. " has no straw until it replants."
 	end
 	if farm.state == "Available" then
 		return false, "Accept the " .. farm.definition.ShortName .. " commitment first."
 	end
 	if farm.state == "Rejected" then
-		return false, "You rejected " .. farm.definition.ShortName .. ". No service this season."
+		return false, "You rejected " .. farm.definition.ShortName .. ". Wait for its next harvest."
 	end
 	if now > farm.deadlineAt then
 		return false, "The deadline has passed."
@@ -182,25 +194,56 @@ function FarmCommitments:Take(farmId: string, count: number, now: number): numbe
 	if farm.remaining == 0 then
 		farm.state = "Completed"
 		farm.resolved = true
-		-- Spec 16.3: a completed commitment changes trust and credits once.
+		farm.resolvedAt = now
+		farm.streak += 1
+		-- Spec 16.3: a completed commitment changes trust and credits once. A streak of kept
+		-- promises earns a bigger reliability bonus.
+		local step = self.config.StreakBonusStep or 0
+		local cap = self.config.StreakBonusCap or 0
+		local multiplier = 1 + math.min(step * (farm.streak - 1), cap)
 		self:_emit({
 			type = "Completed",
 			farmId = farmId,
 			owner = farm.owner,
 			trust = farm.definition.CompleteTrust,
-			credits = farm.definition.ReliabilityBonus,
+			credits = math.floor(farm.definition.ReliabilityBonus * multiplier + 0.5),
+			streak = farm.streak,
 		})
 	end
 	return taken
 end
 
--- Resolves deadlines. Missed promises and unserved farms burn only their remaining straw.
+-- A resolved farm replants and offers a fresh contract.
+function FarmCommitments:_regrow(farm: Farm, now: number)
+	local definition = farm.definition
+	farm.state = "Available"
+	farm.remaining = definition.Bundles
+	farm.deadlineAt = now + (definition.NextDeadlineSeconds or definition.DeadlineSeconds)
+	farm.extended = false
+	farm.owner = nil
+	farm.resolved = false
+	farm.burnedBundles = 0
+	farm.round += 1
+	self:_emit({ type = "Regrown", farmId = farm.id, owner = nil })
+end
+
+-- Resolves deadlines and regrows resolved farms. Missed promises and unserved farms burn only
+-- their remaining straw.
 function FarmCommitments:Update(now: number): { Event }
 	for farmId, farm in self.farms do
-		if farm.resolved or now < farm.deadlineAt then
+		if farm.resolved then
+			local regrow = farm.definition.RegrowSeconds
+			if regrow and now >= farm.resolvedAt + regrow then
+				self:_regrow(farm, now)
+			end
+			continue
+		end
+		if now < farm.deadlineAt then
 			continue
 		end
 		farm.resolved = true
+		farm.resolvedAt = now
+		farm.streak = 0
 		local quantity = farm.remaining
 		local definition = farm.definition
 		local responsibility: string

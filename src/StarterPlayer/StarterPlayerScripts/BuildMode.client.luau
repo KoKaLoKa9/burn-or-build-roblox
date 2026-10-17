@@ -16,6 +16,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MachineDefinitions = require(Shared:WaitForChild("MachineDefinitions"))
+local ItemDefinitions = require(Shared:WaitForChild("ItemDefinitions"))
 local ResearchDefinitions = require(Shared:WaitForChild("ResearchDefinitions"))
 local MachineArt = require(Shared:WaitForChild("MachineArt"))
 local PipeDefinitions = require(Shared:WaitForChild("PipeDefinitions"))
@@ -316,7 +317,14 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BuildModeGui"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+-- Above the tutorial card, so the shop and inventory are never covered.
+screenGui.DisplayOrder = 3
 screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local function itemName(itemId: string?): string
+	local item = if itemId then ItemDefinitions[itemId] else nil
+	return if item then item.DisplayName else tostring(itemId)
+end
 
 local function isUnlocked(): boolean
 	return player:GetAttribute("TutorialComplete") == true
@@ -750,8 +758,37 @@ for index = 1, HOTBAR_SIZE do
 	setSlotItem(slot, hotbarItems[index])
 end
 createDivider(50)
--- The bag opens the inventory, where the hotbar is customised.
-local bagTool = createToolSlot(51, "Bag", "B", function(icon)
+-- The cart opens the shop: buy machines and read their details there.
+local shopTool = createToolSlot(51, "Shop", "M", function(icon)
+	local basket = Instance.new("Frame")
+	basket.Name = "Basket"
+	basket.AnchorPoint = Vector2.new(0.5, 0)
+	basket.Position = UDim2.new(0.5, 2, 0, 4)
+	basket.Size = UDim2.fromOffset(22, 12)
+	basket.BackgroundColor3 = Colors.Teal
+	basket.BorderSizePixel = 0
+	basket.Parent = icon
+	UITheme.corner(basket, 3)
+	local handle = Instance.new("Frame")
+	handle.Name = "Handle"
+	handle.Position = UDim2.fromOffset(1, 0)
+	handle.Size = UDim2.fromOffset(6, 3)
+	handle.BackgroundColor3 = Colors.Teal
+	handle.BorderSizePixel = 0
+	handle.Parent = icon
+	for _, x in { 9, 21 } do
+		local wheel = Instance.new("Frame")
+		wheel.Name = "Wheel"
+		wheel.Position = UDim2.fromOffset(x, 19)
+		wheel.Size = UDim2.fromOffset(6, 6)
+		wheel.BackgroundColor3 = Colors.Gold
+		wheel.BorderSizePixel = 0
+		wheel.Parent = icon
+		UITheme.corner(wheel, 3)
+	end
+end)
+-- The bag opens the inventory: what you own.
+local bagTool = createToolSlot(52, "Bag", "B", function(icon)
 	local body = Instance.new("Frame")
 	body.Name = "BagBody"
 	body.AnchorPoint = Vector2.new(0.5, 1)
@@ -780,7 +817,7 @@ local bagTool = createToolSlot(51, "Bag", "B", function(icon)
 	UITheme.outline(handle, Colors.Straw, 0, 2.5)
 end)
 -- The Delete tool removes your machines and belt tiles (and pipes once they exist).
-local deleteTool = createToolSlot(52, "Delete", "X", function(icon)
+local deleteTool = createToolSlot(53, "Delete", "X", function(icon)
 	for _, angle in { 45, -45 } do
 		local bar = Instance.new("Frame")
 		bar.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -793,7 +830,7 @@ local deleteTool = createToolSlot(52, "Delete", "X", function(icon)
 		UITheme.corner(bar, 2)
 	end
 end)
-local gridTool = createToolSlot(53, "Grid", "G", function(icon)
+local gridTool = createToolSlot(54, "Grid", "G", function(icon)
 	for row = 0, 2 do
 		for columnIndex = 0, 2 do
 			iconBlock(
@@ -911,6 +948,8 @@ hintsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 
 local currentHints = ""
 local function setHints(entries: { { string } })
+	-- With no tool active there is nothing to explain, so the bar disappears.
+	hints.Visible = #entries > 0
 	local signature = ""
 	for _, entry in entries do
 		signature ..= entry[1] .. entry[2]
@@ -1061,9 +1100,16 @@ local function refreshPanel()
 			local definition = MachineDefinitions[slot.id]
 			locked = machineLocked(definition)
 			if slot.cost then
-				slot.cost.TextColor3 = if balance < definition.Cost
-					then Colors.Danger
-					else Colors.Gold
+				local stock = player:GetAttribute("Owned_" .. slot.id)
+				if typeof(stock) == "number" and stock > 0 then
+					slot.cost.Text = "x" .. stock
+					slot.cost.TextColor3 = Colors.Good
+				else
+					slot.cost.Text = UITheme.formatNumber(definition.Cost)
+					slot.cost.TextColor3 = if balance < definition.Cost
+						then Colors.Danger
+						else Colors.Gold
+				end
 			end
 		end
 		if slot.lockOverlay then
@@ -1120,13 +1166,7 @@ local function refreshPanel()
 		if os.clock() - toastShownAt >= 4 then
 			hideToast()
 		end
-		setHints({
-			{ "1-" .. #CATALOG, "Build" },
-			{ tostring(#CATALOG + 1), "Conveyor" },
-			{ "F", "Pause machine" },
-			{ "X", "Delete" },
-			{ "Shift", "Run" },
-		})
+		setHints({})
 	end
 end
 
@@ -1206,7 +1246,9 @@ end
 
 local function activateSlot(slot: Slot)
 	if slot.kind == "Empty" then
-		showMessage("Empty slot. Press B to open your inventory and drag an item here.")
+		showMessage(
+			"Empty slot. Press M for the shop or B for your inventory and drag an item here."
+		)
 		return
 	elseif slot.kind == "Future" then
 		showMessage("This machine unlocks through research in the coming tier update.")
@@ -1231,345 +1273,877 @@ local function activateSlot(slot: Slot)
 	end
 end
 
--- Inventory ------------------------------------------------------------------------------------
--- B or the bag opens every buildable item. Drag an item onto hotbar slots 1 to 9, drag hotbar
--- items between slots to swap them, or drag one off the hotbar to put it away. Hovering an item
--- and pressing 1 to 9 also assigns it.
+-- The shop and inventory live in their own scope: the script's top level is close to Luau's limit
+-- of 200 locals. The rest of the script reaches them through `panels`.
+local panels: any = {}
+do
+	-- Shop and inventory ---------------------------------------------------------------------------
+	-- M or the cart opens the shop: every buildable item in a scrolling list, with an index pane that
+	-- shows the selected item's stats and lets the player buy it into their inventory. B or the bag
+	-- opens the inventory: what the player actually owns (machines in storage, carried straw, what is
+	-- placed, plots, engineers, research). Items drag from either panel onto hotbar slots 1 to 9, hotbar
+	-- items drag between slots to swap, and dragging one off the hotbar puts it away. Hovering an item
+	-- and pressing 1 to 9 also assigns it.
 
-local inventoryOpen = false
-local hoveredCard: Item? = nil
+	local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+	local buyRemote = Remotes:WaitForChild("BuyItem") :: RemoteFunction
+	local sellRemote = Remotes:WaitForChild("SellItem") :: RemoteFunction
 
-local inventory = UITheme.card("Inventory", screenGui, 520)
-inventory.AnchorPoint = Vector2.new(0.5, 0.5)
-inventory.Position = UDim2.fromScale(0.5, 0.44)
-inventory.Visible = false
-inventory.ZIndex = 20
-UITheme.padding(inventory, 12, 14)
-UITheme.list(inventory, 8)
+	local PANEL_WIDTH = 760
+	local PANEL_HEIGHT = 380
+	local LIST_WIDTH = 432
 
-local inventoryHeader = Instance.new("Frame")
-inventoryHeader.Name = "Header"
-inventoryHeader.Size = UDim2.new(1, 0, 0, 34)
-inventoryHeader.BackgroundTransparency = 1
-inventoryHeader.LayoutOrder = 0
-inventoryHeader.Parent = inventory
-UITheme.text(inventoryHeader, {
-	name = "Title",
-	text = "INVENTORY",
-	size = UDim2.new(1, -40, 0, 20),
-	font = Fonts.Heavy,
-	textSize = 17,
-	color = Colors.Gold,
-})
-UITheme.text(inventoryHeader, {
-	name = "Hint",
-	text = "Drag items onto your hotbar. Drag a hotbar item here to put it away.",
-	size = UDim2.new(1, -40, 0, 14),
-	textSize = 12,
-	color = Colors.Muted,
-}).Position =
-	UDim2.fromOffset(0, 20)
+	local openPanel: string? = nil -- "Shop", "Inventory", or nil
+	local hoveredCard: Item? = nil
+	local selectedItem: Item? = nil
 
-local closeButton = Instance.new("TextButton")
-closeButton.Name = "Close"
-closeButton.AnchorPoint = Vector2.new(1, 0)
-closeButton.Position = UDim2.fromScale(1, 0)
-closeButton.Size = UDim2.fromOffset(28, 28)
-closeButton.BackgroundColor3 = Colors.Raised
-closeButton.Text = "X"
-closeButton.FontFace = Fonts.Heavy
-closeButton.TextSize = 16
-closeButton.TextColor3 = Colors.Text
-closeButton.AutoButtonColor = true
-closeButton.Parent = inventoryHeader
-UITheme.corner(closeButton, 8)
+	local function ownedCount(definitionId: string): number
+		local value = player:GetAttribute("Owned_" .. definitionId)
+		return if typeof(value) == "number" then value else 0
+	end
 
-type Card =
-	{ item: Item, button: TextButton, badge: TextLabel, preview: Preview, lockOverlay: Frame }
-local cards: { Card } = {}
+	-- A fixed-size dark panel that sits above the hotbar, so it never covers it.
+	local function createPanel(name: string, title: string, hint: string): (Frame, TextButton)
+		local panel = UITheme.card(name, screenGui, PANEL_WIDTH)
+		panel.AutomaticSize = Enum.AutomaticSize.None
+		panel.Size = UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT)
+		panel.AnchorPoint = Vector2.new(0.5, 1)
+		panel.Position = UDim2.new(0.5, 0, 1, -128)
+		panel.Visible = false
+		panel.ZIndex = 20
+		UITheme.padding(panel, 12, 14)
 
-local function createSection(order: number, title: string): Frame
-	UITheme.text(inventory, {
-		name = title .. "Title",
-		text = string.upper(title),
-		size = UDim2.new(1, 0, 0, 16),
+		local header = Instance.new("Frame")
+		header.Name = "Header"
+		header.Size = UDim2.new(1, 0, 0, 34)
+		header.BackgroundTransparency = 1
+		header.Parent = panel
+		UITheme.text(header, {
+			name = "Title",
+			text = title,
+			size = UDim2.new(1, -40, 0, 20),
+			font = Fonts.Heavy,
+			textSize = 17,
+			color = Colors.Gold,
+		})
+		UITheme.text(header, {
+			name = "Hint",
+			text = hint,
+			size = UDim2.new(1, -40, 0, 14),
+			textSize = 12,
+			color = Colors.Muted,
+		}).Position =
+			UDim2.fromOffset(0, 20)
+
+		local close = Instance.new("TextButton")
+		close.Name = "Close"
+		close.AnchorPoint = Vector2.new(1, 0)
+		close.Position = UDim2.fromScale(1, 0)
+		close.Size = UDim2.fromOffset(28, 28)
+		close.BackgroundColor3 = Colors.Raised
+		close.Text = "X"
+		close.FontFace = Fonts.Heavy
+		close.TextSize = 16
+		close.TextColor3 = Colors.Text
+		close.AutoButtonColor = true
+		close.Parent = header
+		UITheme.corner(close, 8)
+		return panel, close
+	end
+
+	local function createScroller(
+		parent: Instance,
+		name: string,
+		size: UDim2,
+		position: UDim2
+	): ScrollingFrame
+		local scroller = Instance.new("ScrollingFrame")
+		scroller.Name = name
+		scroller.Size = size
+		scroller.Position = position
+		scroller.BackgroundTransparency = 1
+		scroller.BorderSizePixel = 0
+		scroller.ScrollBarThickness = 6
+		scroller.ScrollBarImageColor3 = Colors.Muted
+		scroller.CanvasSize = UDim2.new()
+		scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		scroller.ScrollingDirection = Enum.ScrollingDirection.Y
+		scroller.Parent = parent
+		UITheme.list(scroller, 8)
+		local padding = Instance.new("UIPadding")
+		padding.PaddingRight = UDim.new(0, 10)
+		padding.Parent = scroller
+		return scroller
+	end
+
+	local function createSection(parent: Instance, order: number, title: string): Frame
+		UITheme.text(parent, {
+			name = title .. "Title",
+			text = string.upper(title),
+			size = UDim2.new(1, 0, 0, 16),
+			font = Fonts.Heavy,
+			textSize = 12,
+			color = Colors.Muted,
+			order = order,
+		})
+		local grid = Instance.new("Frame")
+		grid.Name = title .. "Grid"
+		grid.Size = UDim2.fromScale(1, 0)
+		grid.AutomaticSize = Enum.AutomaticSize.Y
+		grid.BackgroundTransparency = 1
+		grid.LayoutOrder = order + 1
+		grid.Parent = parent
+		local layout = Instance.new("UIGridLayout")
+		layout.CellSize = UDim2.fromOffset(76, 92)
+		layout.CellPadding = UDim2.fromOffset(8, 8)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = grid
+		return grid
+	end
+
+	type Card = {
+		item: Item,
+		button: TextButton,
+		badge: TextLabel,
+		preview: Preview,
+		lockOverlay: Frame,
+		cost: TextLabel,
+		stroke: UIStroke,
+	}
+
+	-- One item card: preview, name, price (or owned count), hotbar key badge, and lock cover.
+	local function createCard(parent: Instance, item: Item, order: number): Card
+		local button = Instance.new("TextButton")
+		button.Name = item.key
+		button.Text = ""
+		button.AutoButtonColor = false
+		button.BackgroundColor3 = Colors.Raised
+		button.BackgroundTransparency = 0.1
+		button.BorderSizePixel = 0
+		button.LayoutOrder = order
+		button.Parent = parent
+		UITheme.corner(button, 12)
+		local stroke = UITheme.outline(button)
+
+		local visual = Instance.new("Frame")
+		visual.Name = "Visual"
+		visual.Size = UDim2.fromOffset(76, 68)
+		visual.BackgroundTransparency = 1
+		visual.Parent = button
+		local _, camera, focus, radius, cost, lockOverlay = buildItemVisual(visual, item)
+
+		UITheme.text(button, {
+			name = "Name",
+			text = item.name,
+			size = UDim2.new(1, -6, 0, 20),
+			font = Fonts.Bold,
+			textSize = 10,
+			alignX = Enum.TextXAlignment.Center,
+			wrap = true,
+		}).Position =
+			UDim2.new(0, 3, 1, -22)
+
+		local badge = UITheme.text(button, {
+			name = "Badge",
+			size = UDim2.fromOffset(20, 20),
+			font = Fonts.Heavy,
+			textSize = 12,
+			color = Colors.Panel,
+			alignX = Enum.TextXAlignment.Center,
+		})
+		badge.Position = UDim2.fromOffset(6, 6)
+		badge.BackgroundColor3 = Colors.Gold
+		badge.BackgroundTransparency = 0
+		badge.Visible = false
+		UITheme.corner(badge, 10)
+
+		local card: Card = {
+			item = item,
+			button = button,
+			badge = badge,
+			preview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) },
+			lockOverlay = lockOverlay,
+			cost = cost,
+			stroke = stroke,
+		}
+		framePreview(card.preview)
+		return card
+	end
+
+	local function raise(root: Instance)
+		for _, descendant in root:GetDescendants() do
+			if descendant:IsA("GuiObject") then
+				descendant.ZIndex = math.max(descendant.ZIndex, 20)
+					+ (if descendant.Name == "Badge" then 2 else 0)
+			end
+		end
+	end
+
+	local function itemLocked(item: Item): boolean
+		return item.kind == "Future"
+			or (item.kind == "Transport" and not PipeDefinitions.Types[item.id].Ready)
+			or (item.kind == "Machine" and machineLocked(MachineDefinitions[item.id]))
+	end
+
+	-- Shop ----------------------------------------------------------------------------------------
+
+	local shop, shopClose = createPanel(
+		"Shop",
+		"SHOP",
+		"Click an item for its details. Buy it into your inventory, or drag it onto your hotbar."
+	)
+	local shopList =
+		createScroller(shop, "List", UDim2.new(0, LIST_WIDTH, 1, -42), UDim2.fromOffset(0, 42))
+
+	local shopCards: { Card } = {}
+	local sectionGrids: { [string]: Frame } = {
+		Machines = createSection(shopList, 10, "Machines"),
+		Farm = createSection(shopList, 15, "Farm machines"),
+		Transport = createSection(shopList, 20, "Transport"),
+		Research = createSection(shopList, 30, "Tier 2 (research)"),
+	}
+	for order, item in ITEMS do
+		table.insert(shopCards, createCard(sectionGrids[item.category], item, order))
+	end
+
+	-- Index: the details of the selected item.
+	local indexPane = Instance.new("Frame")
+	indexPane.Name = "Index"
+	indexPane.Position = UDim2.fromOffset(LIST_WIDTH + 12, 42)
+	indexPane.Size = UDim2.new(1, -(LIST_WIDTH + 12), 1, -42)
+	indexPane.BackgroundColor3 = Colors.Raised
+	indexPane.BackgroundTransparency = 0.25
+	indexPane.BorderSizePixel = 0
+	indexPane.Parent = shop
+	UITheme.corner(indexPane, 12)
+
+	local indexView = Instance.new("Frame")
+	indexView.Name = "Preview"
+	indexView.Size = UDim2.new(1, 0, 0, 110)
+	indexView.BackgroundTransparency = 1
+	indexView.Parent = indexPane
+	local indexPreview: Preview? = nil
+
+	local indexBody =
+		createScroller(indexPane, "Body", UDim2.new(1, -12, 1, -158), UDim2.fromOffset(12, 112))
+	local indexName = UITheme.text(indexBody, {
+		name = "Name",
+		size = UDim2.new(1, 0, 0, 20),
 		font = Fonts.Heavy,
+		textSize = 17,
+		order = 1,
+	})
+	local indexStatus = UITheme.text(indexBody, {
+		name = "Status",
+		size = UDim2.new(1, 0, 0, 16),
+		font = Fonts.Bold,
+		textSize = 12,
+		order = 2,
+	})
+	local indexStats = UITheme.text(indexBody, {
+		name = "Stats",
+		size = UDim2.fromScale(1, 0),
+		textSize = 12,
+		wrap = true,
+		order = 3,
+		alignY = Enum.TextYAlignment.Top,
+	})
+	indexStats.AutomaticSize = Enum.AutomaticSize.Y
+	indexStats.RichText = true
+	local indexBlurb = UITheme.text(indexBody, {
+		name = "Blurb",
+		size = UDim2.fromScale(1, 0),
 		textSize = 12,
 		color = Colors.Muted,
-		order = order,
-	})
-	local grid = Instance.new("Frame")
-	grid.Name = title .. "Grid"
-	grid.Size = UDim2.fromScale(1, 0)
-	grid.AutomaticSize = Enum.AutomaticSize.Y
-	grid.BackgroundTransparency = 1
-	grid.LayoutOrder = order + 1
-	grid.Parent = inventory
-	local layout = Instance.new("UIGridLayout")
-	layout.CellSize = UDim2.fromOffset(76, 92)
-	layout.CellPadding = UDim2.fromOffset(8, 8)
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Parent = grid
-	return grid
-end
-
-local sectionGrids: { [string]: Frame } = {
-	Machines = createSection(10, "Machines"),
-	Farm = createSection(15, "Farm machines"),
-	Transport = createSection(20, "Transport"),
-	Research = createSection(30, "Tier 2 (research)"),
-}
-
-for order, item in ITEMS do
-	local button = Instance.new("TextButton")
-	button.Name = item.key
-	button.Text = ""
-	button.AutoButtonColor = false
-	button.BackgroundColor3 = Colors.Raised
-	button.BackgroundTransparency = 0.1
-	button.BorderSizePixel = 0
-	button.LayoutOrder = order
-	button.Parent = sectionGrids[item.category]
-	UITheme.corner(button, 12)
-	UITheme.outline(button)
-
-	local visual = Instance.new("Frame")
-	visual.Name = "Visual"
-	visual.Size = UDim2.fromOffset(76, 68)
-	visual.BackgroundTransparency = 1
-	visual.Parent = button
-	local _, camera, focus, radius, _, lockOverlay = buildItemVisual(visual, item)
-
-	UITheme.text(button, {
-		name = "Name",
-		text = item.name,
-		size = UDim2.new(1, -6, 0, 20),
-		font = Fonts.Bold,
-		textSize = 10,
-		alignX = Enum.TextXAlignment.Center,
 		wrap = true,
-	}).Position =
-		UDim2.new(0, 3, 1, -22)
-
-	-- Shows which hotbar key the item sits on, if any.
-	local badge = UITheme.text(button, {
-		name = "Badge",
-		size = UDim2.fromOffset(20, 20),
-		font = Fonts.Heavy,
-		textSize = 12,
-		color = Colors.Panel,
-		alignX = Enum.TextXAlignment.Center,
+		order = 4,
 	})
-	badge.Position = UDim2.fromOffset(6, 6)
-	badge.BackgroundColor3 = Colors.Gold
-	badge.BackgroundTransparency = 0
-	badge.ZIndex = 4
-	UITheme.corner(badge, 10)
+	indexBlurb.AutomaticSize = Enum.AutomaticSize.Y
 
-	local card: Card = {
-		item = item,
-		button = button,
-		badge = badge,
-		preview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) },
-		lockOverlay = lockOverlay,
-	}
-	framePreview(card.preview)
-	table.insert(cards, card)
-end
-for _, descendant in inventory:GetDescendants() do
-	if descendant:IsA("GuiObject") then
-		descendant.ZIndex = math.max(descendant.ZIndex, 20)
-			+ (if descendant.Name == "Badge" then 2 else 0)
+	local buyRow = Instance.new("Frame")
+	buyRow.Name = "Buy"
+	buyRow.AnchorPoint = Vector2.new(0, 1)
+	buyRow.Position = UDim2.new(0, 10, 1, -8)
+	buyRow.Size = UDim2.new(1, -20, 0, 32)
+	buyRow.BackgroundTransparency = 1
+	buyRow.Parent = indexPane
+	local ownedLabel = UITheme.text(buyRow, {
+		name = "Owned",
+		size = UDim2.fromScale(0.34, 1),
+		font = Fonts.Bold,
+		textSize = 12,
+		color = Colors.Muted,
+	})
+
+	local function buyButton(name: string, text: string, position: UDim2): TextButton
+		local button = Instance.new("TextButton")
+		button.Name = name
+		button.AnchorPoint = Vector2.new(1, 0)
+		button.Position = position
+		button.Size = UDim2.fromScale(0.31, 1)
+		button.BackgroundColor3 = Colors.Teal
+		button.Text = text
+		button.FontFace = Fonts.Heavy
+		button.TextSize = 12
+		button.TextColor3 = Colors.Panel
+		button.AutoButtonColor = true
+		button.Parent = buyRow
+		UITheme.corner(button, 8)
+		return button
 	end
-end
+	local buyOne = buyButton("BuyOne", "BUY 1", UDim2.fromScale(0.66, 0))
+	local buyFive = buyButton("BuyFive", "BUY 5", UDim2.fromScale(1, 0))
 
-local function refreshCards()
-	for _, card in cards do
-		local index = table.find(hotbarItems, card.item.key)
-		card.badge.Visible = index ~= nil
-		card.badge.Text = if index then tostring(index) else ""
-		local locked = card.item.kind == "Future"
-			or (card.item.kind == "Transport" and not PipeDefinitions.Types[card.item.id].Ready)
-			or (card.item.kind == "Machine" and machineLocked(MachineDefinitions[card.item.id]))
-		card.lockOverlay.Visible = locked
+	local function per(value: number, seconds: number): string
+		local perMinute = value * 60 / seconds
+		return if perMinute == math.floor(perMinute)
+			then string.format("%d", perMinute)
+			else string.format("%.1f", perMinute)
 	end
-end
 
-local function applyHotbar()
-	for index, slot in slots do
-		setSlotItem(slot, hotbarItems[index])
-	end
-	refreshCards()
-	refreshPanel()
-end
-
--- Puts an item on a slot. An item already on the hotbar moves, swapping with what was there.
-local function assignToSlot(index: number, itemKey: string, fromIndex: number?)
-	local origin = fromIndex or table.find(hotbarItems, itemKey)
-	if origin == index then
-		return
-	end
-	if origin then
-		hotbarItems[origin] = hotbarItems[index]
-	end
-	hotbarItems[index] = itemKey
-	applyHotbar()
-end
-
-local function clearSlot(index: number)
-	hotbarItems[index] = ""
-	applyHotbar()
-end
-
-local function setInventoryOpen(open: boolean)
-	inventoryOpen = open
-	inventory.Visible = open
-	hoveredCard = nil
-	if open then
-		setMode("None")
-		showTooltip(nil)
-		refreshCards()
-	end
-	bagTool.stroke.Color = if open then Colors.Gold else Colors.Outline
-	bagTool.stroke.Transparency = if open then 0 else 0.88
-	bagTool.stroke.Thickness = if open then 2 else 1
-end
-
--- Dragging --------------------------------------------------------------------------------------
-
-type Drag = { itemKey: string, fromIndex: number?, start: Vector2, ghost: Frame? }
-local drag: Drag? = nil
-
-local function guiMouse(): Vector2
-	return UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
-end
-
-local function inside(gui: GuiObject, point: Vector2): boolean
-	local position, size = gui.AbsolutePosition, gui.AbsoluteSize
-	return point.X >= position.X
-		and point.X <= position.X + size.X
-		and point.Y >= position.Y
-		and point.Y <= position.Y + size.Y
-end
-
-local function makeGhost(itemKey: string): Frame
-	local item = ITEM_BY_KEY[itemKey]
-	local ghost = Instance.new("Frame")
-	ghost.Name = "DragGhost"
-	ghost.AnchorPoint = Vector2.new(0.5, 0.5)
-	ghost.Size = UDim2.fromOffset(72, 72)
-	ghost.BackgroundColor3 = Colors.Hover
-	ghost.BackgroundTransparency = 0.15
-	ghost.ZIndex = 60
-	ghost.Parent = screenGui
-	UITheme.corner(ghost, 12)
-	UITheme.outline(ghost, Colors.Gold, 0, 2)
-	local _, camera, focus, radius = buildItemVisual(ghost, item)
-	framePreview({ camera = camera, focus = focus, radius = radius, angle = math.rad(40) })
-	for _, descendant in ghost:GetDescendants() do
-		if descendant:IsA("GuiObject") then
-			descendant.ZIndex = 61
+	-- The machine's numbers, read straight from its definition so the index never goes stale.
+	local function statsFor(item: Item): string
+		local lines: { string } = {}
+		local function add(label: string, value: string)
+			table.insert(lines, string.format('<font color="#92A49D">%s</font>  %s', label, value))
 		end
-	end
-	return ghost
-end
-
-local function beginDrag(itemKey: string, fromIndex: number?)
-	if itemKey == "" then
-		return
-	end
-	drag = { itemKey = itemKey, fromIndex = fromIndex, start = guiMouse(), ghost = nil }
-end
-
-local function finishDrag()
-	local current = drag
-	drag = nil
-	if current == nil then
-		return
-	end
-	if current.ghost == nil then
-		-- A click without moving: from the inventory it fills the first empty slot.
-		if current.fromIndex == nil then
-			local empty = table.find(hotbarItems, "")
-			if table.find(hotbarItems, current.itemKey) then
-				showMessage("That item is already on your hotbar.")
-			elseif empty then
-				assignToSlot(empty, current.itemKey)
+		if item.kind == "Transport" then
+			local pipe = PipeDefinitions.Types[item.id]
+			add("Carries", pipe.Carries)
+			if pipe.Ready then
+				add(
+					"Price",
+					string.format("%d credits per tile, paid as you lay it", pipe.Cost or 0)
+				)
 			else
-				showMessage("Your hotbar is full. Drag the item onto a slot to replace it.")
+				add("Status", "Arrives with the energy update")
 			end
+			return table.concat(lines, "\n")
 		end
-		return
+		local definition = MachineDefinitions[item.id]
+		if definition == nil then
+			return ""
+		end
+		add("Price", string.format("%s credits", UITheme.formatNumber(definition.Cost or 0)))
+		add("Footprint", string.format("%d x %d studs", definition.Size.X, definition.Size.Z))
+		local kind = definition.Kind
+		if kind == "Processor" then
+			add(
+				"Input",
+				string.format("%d %s", definition.InputPerCycle, itemName(definition.InputItem))
+			)
+			add(
+				"Output",
+				string.format("%d %s", definition.OutputPerCycle, itemName(definition.OutputItem))
+			)
+			for _, port in definition.ExtraPorts or {} do
+				if port.Item then
+					add(
+						if port.Direction == "In" then "Also takes" else "Also makes",
+						string.format(
+							"%d %s (%s port)",
+							port.PerCycle or 1,
+							itemName(port.Item),
+							string.lower(port.Medium or "item")
+						)
+					)
+				end
+			end
+			add("Cycle", string.format("%.1f s", definition.CycleSeconds))
+			add(
+				"Speed",
+				string.format(
+					"%s %s per minute",
+					per(definition.OutputPerCycle, definition.CycleSeconds),
+					itemName(definition.OutputItem)
+				)
+			)
+			if definition.OperatingCostPerCycle then
+				add(
+					"Running cost",
+					string.format("%d credits per cycle", definition.OperatingCostPerCycle)
+				)
+			end
+			add(
+				"Buffers",
+				string.format("in %d, out %d", definition.InputCapacity, definition.OutputCapacity)
+			)
+		elseif kind == "Storage" then
+			add("Holds", string.format("%d bundles of one straw type", definition.Capacity))
+		elseif kind == "Sink" then
+			local prices = {}
+			for itemId, price in definition.Prices or {} do
+				table.insert(prices, string.format("%s %d", itemName(itemId), price))
+			end
+			table.sort(prices)
+			add("Buys", table.concat(prices, ", "))
+		elseif kind == "Terminal" then
+			add("Truck", "Carries 8 bundles a trip from Farm B or C")
+			add("Placement", "Beside a road")
+		elseif kind == "Farm" then
+			local action = if definition.FarmAction == "Plant"
+				then "Plants an empty row"
+				elseif definition.FarmAction == "Harvest" then "Harvests a ripe row"
+				else "Bales one straw sheaf"
+			add("Work", string.format("%s every %d s", action, definition.WorkSeconds))
+			add(
+				"Placement",
+				string.format("Beside a paddy, within %d studs", definition.PaddyReach or 12)
+			)
+			if definition.Capacity then
+				add("Holds", string.format("%d bundles until you take them", definition.Capacity))
+			end
+		elseif kind == "Office" then
+			add("Staff", string.format("Up to %d engineers", ResearchDefinitions.MaxEngineers))
+			add(
+				"Research",
+				string.format(
+					"1 point per engineer every %d s",
+					ResearchDefinitions.SecondsPerPoint
+				)
+			)
+		end
+		if definition.MaxPerPlayer then
+			add("Limit", string.format("%d per player", definition.MaxPerPlayer))
+		end
+		if definition.Research then
+			local project = ResearchDefinitions.Projects[definition.Research]
+			add("Research", if project then project.DisplayName else definition.Research)
+		end
+		return table.concat(lines, "\n")
 	end
-	current.ghost:Destroy()
-	local point = guiMouse()
-	for index, slot in slots do
-		if inside(slot.button, point) then
-			assignToSlot(index, current.itemKey, current.fromIndex)
+
+	local function refreshIndex()
+		local item = selectedItem
+		if item == nil then
+			indexName.Text = "Pick an item"
+			indexStatus.Text = ""
+			indexStats.Text =
+				"Click any card on the left to see what it does, what it costs, and how fast it works."
+			indexBlurb.Text = ""
+			buyRow.Visible = false
 			return
 		end
+		indexName.Text = item.name
+		local info = ITEM_INFO[item.id]
+		indexBlurb.Text = if info
+			then info.recipe .. ". " .. info.detail .. "."
+			else (item.blurb or "")
+		indexStats.Text = statsFor(item)
+		local locked = itemLocked(item)
+		local definition = if item.kind == "Machine" then MachineDefinitions[item.id] else nil
+		if definition then
+			local research = researchNeeded(definition)
+			indexStatus.Text = if research
+				then string.format("Research %s at the office", string.lower(research))
+				elseif locked then "Unlocks after your first sale"
+				else "Available"
+			indexStatus.TextColor3 = if locked then Colors.Muted else Colors.Good
+			buyRow.Visible = true
+			local count = ownedCount(item.id)
+			ownedLabel.Text = string.format("In inventory: %d", count)
+			buyOne.Text = string.format("BUY 1  %s", UITheme.formatNumber(definition.Cost))
+			buyFive.Text = "BUY 5"
+			for _, button in { buyOne, buyFive } do
+				button.Active = not locked
+				button.AutoButtonColor = not locked
+				button.BackgroundColor3 = if locked then Colors.Track else Colors.Teal
+			end
+		else
+			indexStatus.Text = if locked
+				then "Coming later"
+				else "Laid tile by tile from the hotbar"
+			indexStatus.TextColor3 = if locked then Colors.Muted else Colors.Good
+			buyRow.Visible = false
+		end
 	end
-	if current.fromIndex and not inside(hotbar, point) then
-		clearSlot(current.fromIndex)
-	end
-end
 
-RunService.RenderStepped:Connect(function(deltaTime: number)
-	local current = drag
-	if current then
-		local point = guiMouse()
-		if current.ghost == nil and (point - current.start).Magnitude > 6 then
-			current.ghost = makeGhost(current.itemKey)
+	local function selectItem(item: Item)
+		selectedItem = item
+		indexView:ClearAllChildren()
+		local _, camera, focus, radius = createViewport(indexView, previewModelFor(item))
+		indexPreview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) }
+		framePreview(indexPreview :: Preview)
+		raise(indexPane)
+		for _, card in shopCards do
+			local chosen = card.item == item
+			card.stroke.Color = if chosen then Colors.Gold else Colors.Outline
+			card.stroke.Transparency = if chosen then 0 else 0.88
+			card.stroke.Thickness = if chosen then 2 else 1
 		end
-		if current.ghost then
-			current.ghost.Position = UDim2.fromOffset(point.X, point.Y)
+		refreshIndex()
+	end
+
+	local function buy(count: number)
+		local item = selectedItem
+		if item == nil or item.kind ~= "Machine" or itemLocked(item) then
+			return
+		end
+		local ok, message = buyRemote:InvokeServer(item.id, count)
+		showMessage(
+			if typeof(message) == "string"
+				then message
+				else if ok then "Bought." else "Could not buy that."
+		)
+		refreshIndex()
+	end
+	buyOne.Activated:Connect(function()
+		buy(1)
+	end)
+	buyFive.Activated:Connect(function()
+		buy(5)
+	end)
+	raise(shop)
+
+	-- Inventory -----------------------------------------------------------------------------------
+
+	local inventory, inventoryClose = createPanel("Inventory", "INVENTORY", "")
+	-- Only machine cards live here, so the panel is shorter than the shop; it scrolls when full.
+	inventory.Size = UDim2.fromOffset(PANEL_WIDTH, 250)
+	local inventoryList =
+		createScroller(inventory, "List", UDim2.new(1, 0, 1, -42), UDim2.fromOffset(0, 42))
+
+	local storageGrid = Instance.new("Frame")
+	storageGrid.Name = "StorageGrid"
+	storageGrid.Size = UDim2.fromScale(1, 0)
+	storageGrid.AutomaticSize = Enum.AutomaticSize.Y
+	storageGrid.BackgroundTransparency = 1
+	storageGrid.LayoutOrder = 2
+	storageGrid.Parent = inventoryList
+	local storageLayout = Instance.new("UIGridLayout")
+	storageLayout.CellSize = UDim2.fromOffset(76, 116)
+	storageLayout.CellPadding = UDim2.fromOffset(8, 8)
+	storageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	storageLayout.Parent = storageGrid
+	local storageEmpty = UITheme.text(inventoryList, {
+		name = "StorageEmpty",
+		text = "No machines yet.",
+		size = UDim2.fromScale(1, 0),
+		textSize = 12,
+		color = Colors.Muted,
+		wrap = true,
+		order = 3,
+	})
+	storageEmpty.AutomaticSize = Enum.AutomaticSize.Y
+
+	type StorageCard = { card: Card, sell: TextButton }
+	local storageCards: { [string]: StorageCard } = {}
+
+	for order, item in ITEMS do
+		if item.kind ~= "Machine" then
+			continue
+		end
+		local card = createCard(storageGrid, item, order)
+		card.button.Size = UDim2.fromOffset(76, 116)
+		local sell = Instance.new("TextButton")
+		sell.Name = "Sell"
+		sell.AnchorPoint = Vector2.new(0.5, 1)
+		sell.Position = UDim2.new(0.5, 0, 1, -4)
+		sell.Size = UDim2.new(1, -10, 0, 20)
+		sell.BackgroundColor3 = Colors.Hover
+		sell.FontFace = Fonts.Heavy
+		sell.TextSize = 10
+		sell.TextColor3 = Colors.Text
+		sell.AutoButtonColor = true
+		sell.Parent = card.button
+		UITheme.corner(sell, 6)
+		-- The name sits above the sell button on these taller cards.
+		local name = card.button:FindFirstChild("Name")
+		if name and name:IsA("TextLabel") then
+			name.Position = UDim2.new(0, 3, 1, -46)
+		end
+		sell.Activated:Connect(function()
+			local ok, message = sellRemote:InvokeServer(item.id)
+			showMessage(
+				if typeof(message) == "string"
+					then message
+					else if ok then "Sold." else "Could not sell that."
+			)
+		end)
+		storageCards[item.id] = { card = card, sell = sell }
+	end
+	raise(inventory)
+
+	local function refreshInventory()
+		local refund = if isUnlocked() then 0.7 else 1
+		local any = false
+		for definitionId, entry in storageCards do
+			local count = ownedCount(definitionId)
+			entry.card.button.Visible = count > 0
+			any = any or count > 0
+			entry.card.cost.Text = "x" .. count
+			entry.card.cost.TextColor3 = Colors.Good
+			entry.sell.Text = string.format(
+				"SELL %s",
+				UITheme.formatNumber(math.floor(MachineDefinitions[definitionId].Cost * refund))
+			)
+		end
+		storageEmpty.Visible = not any
+	end
+
+	local function refreshCards()
+		for _, card in shopCards do
+			local slotIndex = table.find(hotbarItems, card.item.key)
+			card.badge.Visible = slotIndex ~= nil
+			card.badge.Text = if slotIndex then tostring(slotIndex) else ""
+			card.lockOverlay.Visible = itemLocked(card.item)
+		end
+		for _, entry in storageCards do
+			local slotIndex = table.find(hotbarItems, entry.card.item.key)
+			entry.card.badge.Visible = slotIndex ~= nil
+			entry.card.badge.Text = if slotIndex then tostring(slotIndex) else ""
+		end
+		if openPanel == "Shop" then
+			refreshIndex()
+		elseif openPanel == "Inventory" then
+			refreshInventory()
 		end
 	end
-	if inventoryOpen then
-		for _, card in cards do
-			if card.item == hoveredCard then
-				card.preview.angle += deltaTime * 0.9
-				framePreview(card.preview)
+
+	local function applyHotbar()
+		for slotIndex, slot in slots do
+			setSlotItem(slot, hotbarItems[slotIndex])
+		end
+		refreshCards()
+		refreshPanel()
+	end
+
+	-- Puts an item on a slot. An item already on the hotbar moves, swapping with what was there.
+	local function assignToSlot(slotIndex: number, itemKey: string, fromIndex: number?)
+		local origin = fromIndex or table.find(hotbarItems, itemKey)
+		if origin == slotIndex then
+			return
+		end
+		if origin then
+			hotbarItems[origin] = hotbarItems[slotIndex]
+		end
+		hotbarItems[slotIndex] = itemKey
+		applyHotbar()
+	end
+
+	local function clearSlot(slotIndex: number)
+		hotbarItems[slotIndex] = ""
+		applyHotbar()
+	end
+
+	local function setTool(tool: ToolSlot, active: boolean)
+		tool.stroke.Color = if active then Colors.Gold else Colors.Outline
+		tool.stroke.Transparency = if active then 0 else 0.88
+		tool.stroke.Thickness = if active then 2 else 1
+	end
+
+	local function setOpenPanel(name: string?)
+		openPanel = name
+		shop.Visible = name == "Shop"
+		inventory.Visible = name == "Inventory"
+		hoveredCard = nil
+		if name then
+			setMode("None")
+			showTooltip(nil)
+			refreshCards()
+			if name == "Shop" and selectedItem == nil then
+				refreshIndex()
 			end
 		end
+		setTool(shopTool, name == "Shop")
+		setTool(bagTool, name == "Inventory")
 	end
-end)
 
-for _, card in cards do
-	card.button.MouseEnter:Connect(function()
-		hoveredCard = card.item
-	end)
-	card.button.MouseLeave:Connect(function()
-		if hoveredCard == card.item then
-			hoveredCard = nil
-		end
-	end)
-	card.button.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			beginDrag(card.item.key, nil)
-		end
-	end)
-end
-for index, slot in slots do
-	slot.button.InputBegan:Connect(function(input)
-		-- Rearranging the hotbar only happens while the inventory is open, so a normal click
-		-- on a slot still just selects it.
-		if inventoryOpen and input.UserInputType == Enum.UserInputType.MouseButton1 then
-			beginDrag(slot.itemKey, index)
-		end
-	end)
-end
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		finishDrag()
+	local function togglePanel(name: string)
+		setOpenPanel(if openPanel == name then nil else name)
 	end
-end)
-closeButton.Activated:Connect(function()
-	setInventoryOpen(false)
-end)
-bagTool.button.Activated:Connect(function()
-	setInventoryOpen(not inventoryOpen)
-end)
+
+	-- Ownership, carried straw, and research all change what the inventory and index show.
+	player.AttributeChanged:Connect(function(attribute)
+		if openPanel == nil then
+			return
+		end
+		if
+			string.sub(attribute, 1, 6) == "Owned_"
+			or attribute == "StrawBundles"
+			or attribute == "Engineers"
+			or attribute == "Credits"
+			or attribute == "TutorialComplete"
+		then
+			refreshCards()
+		end
+	end)
+
+	-- Dragging --------------------------------------------------------------------------------------
+
+	type Drag = { itemKey: string, fromIndex: number?, start: Vector2, ghost: Frame?, card: Card? }
+	local drag: Drag? = nil
+
+	local function guiMouse(): Vector2
+		return UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
+	end
+
+	local function inside(gui: GuiObject, point: Vector2): boolean
+		local position, size = gui.AbsolutePosition, gui.AbsoluteSize
+		return point.X >= position.X
+			and point.X <= position.X + size.X
+			and point.Y >= position.Y
+			and point.Y <= position.Y + size.Y
+	end
+
+	local function makeGhost(itemKey: string): Frame
+		local item = ITEM_BY_KEY[itemKey]
+		local ghost = Instance.new("Frame")
+		ghost.Name = "DragGhost"
+		ghost.AnchorPoint = Vector2.new(0.5, 0.5)
+		ghost.Size = UDim2.fromOffset(72, 72)
+		ghost.BackgroundColor3 = Colors.Hover
+		ghost.BackgroundTransparency = 0.15
+		ghost.ZIndex = 60
+		ghost.Parent = screenGui
+		UITheme.corner(ghost, 12)
+		UITheme.outline(ghost, Colors.Gold, 0, 2)
+		local _, camera, focus, radius = buildItemVisual(ghost, item)
+		framePreview({ camera = camera, focus = focus, radius = radius, angle = math.rad(40) })
+		for _, descendant in ghost:GetDescendants() do
+			if descendant:IsA("GuiObject") then
+				descendant.ZIndex = 61
+			end
+		end
+		return ghost
+	end
+
+	local function beginDrag(itemKey: string, fromIndex: number?, card: Card?)
+		if itemKey == "" then
+			return
+		end
+		drag = {
+			itemKey = itemKey,
+			fromIndex = fromIndex,
+			start = guiMouse(),
+			ghost = nil,
+			card = card,
+		}
+	end
+
+	local function finishDrag()
+		local current = drag
+		drag = nil
+		if current == nil then
+			return
+		end
+		if current.ghost == nil then
+			-- A click without moving: in the shop it opens the item's details.
+			local card = current.card
+			if card and openPanel == "Shop" then
+				selectItem(card.item)
+			elseif current.fromIndex == nil then
+				local empty = table.find(hotbarItems, "")
+				if table.find(hotbarItems, current.itemKey) then
+					showMessage("That item is already on your hotbar.")
+				elseif empty then
+					assignToSlot(empty, current.itemKey)
+				else
+					showMessage("Your hotbar is full. Drag the item onto a slot to replace it.")
+				end
+			end
+			return
+		end
+		current.ghost:Destroy()
+		local point = guiMouse()
+		for slotIndex, slot in slots do
+			if inside(slot.button, point) then
+				assignToSlot(slotIndex, current.itemKey, current.fromIndex)
+				return
+			end
+		end
+		if current.fromIndex and not inside(hotbar, point) then
+			clearSlot(current.fromIndex)
+		end
+	end
+
+	RunService.RenderStepped:Connect(function(deltaTime: number)
+		local current = drag
+		if current then
+			local point = guiMouse()
+			if current.ghost == nil and (point - current.start).Magnitude > 6 then
+				current.ghost = makeGhost(current.itemKey)
+			end
+			if current.ghost then
+				current.ghost.Position = UDim2.fromOffset(point.X, point.Y)
+			end
+		end
+		if openPanel == "Shop" then
+			for _, card in shopCards do
+				if card.item == hoveredCard then
+					card.preview.angle += deltaTime * 0.9
+					framePreview(card.preview)
+				end
+			end
+			local preview = indexPreview
+			if preview then
+				preview.angle += deltaTime * 0.6
+				framePreview(preview)
+			end
+		end
+	end)
+
+	local function hookCard(card: Card)
+		card.button.MouseEnter:Connect(function()
+			hoveredCard = card.item
+		end)
+		card.button.MouseLeave:Connect(function()
+			if hoveredCard == card.item then
+				hoveredCard = nil
+			end
+		end)
+		card.button.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				beginDrag(card.item.key, nil, card)
+			end
+		end)
+	end
+	for _, card in shopCards do
+		hookCard(card)
+	end
+	for _, entry in storageCards do
+		hookCard(entry.card)
+	end
+	for slotIndex, slot in slots do
+		slot.button.InputBegan:Connect(function(input)
+			-- Rearranging the hotbar only happens while a panel is open, so a normal click on a slot
+			-- still just selects it.
+			if openPanel and input.UserInputType == Enum.UserInputType.MouseButton1 then
+				beginDrag(slot.itemKey, slotIndex)
+			end
+		end)
+	end
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			finishDrag()
+		end
+	end)
+	shopClose.Activated:Connect(function()
+		setOpenPanel(nil)
+	end)
+	inventoryClose.Activated:Connect(function()
+		setOpenPanel(nil)
+	end)
+	shopTool.button.Activated:Connect(function()
+		togglePanel("Shop")
+	end)
+	bagTool.button.Activated:Connect(function()
+		togglePanel("Inventory")
+	end)
+
+	panels.toggle = togglePanel
+	panels.close = function()
+		setOpenPanel(nil)
+	end
+	panels.isOpen = function(): boolean
+		return openPanel ~= nil
+	end
+	panels.hovered = function(): Item?
+		return hoveredCard
+	end
+	panels.assign = assignToSlot
+	panels.refreshCards = refreshCards
+end
 
 -- Belt requests run one at a time in order, so a fast drag never lands out of sequence.
 type BeltRequest = { action: string, x: number, z: number, dir: number }
@@ -1947,7 +2521,7 @@ RunService.RenderStepped:Connect(function(deltaTime: number)
 		rotationSteps,
 		plotRect,
 		blockers,
-		credits(),
+		if (player:GetAttribute("Owned_" .. selectedId) or 0) > 0 then math.huge else credits(),
 		{
 			unlocked = isUnlocked(),
 			roads = roadRects,
@@ -2030,19 +2604,22 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	local slotIndex = table.find(SLOT_KEYS, input.KeyCode)
 	local cell = hoveredCell
-	local card = hoveredCard
+	local card = panels.hovered()
+	local panelOpen = panels.isOpen()
 	if input.KeyCode == Enum.KeyCode.B then
-		setInventoryOpen(not inventoryOpen)
-	elseif slotIndex and inventoryOpen then
-		-- Hover an inventory item and press a number to put it on that slot.
+		panels.toggle("Inventory")
+	elseif input.KeyCode == Enum.KeyCode.M then
+		panels.toggle("Shop")
+	elseif slotIndex and panelOpen then
+		-- Hover a shop or inventory item and press a number to put it on that slot.
 		if card then
-			assignToSlot(slotIndex, card.key)
+			panels.assign(slotIndex, card.key)
 		end
 	elseif
-		inventoryOpen and (input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.Escape)
+		panelOpen and (input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.Escape)
 	then
-		setInventoryOpen(false)
-	elseif inventoryOpen then
+		panels.close()
+	elseif panelOpen then
 		return
 	elseif slotIndex and slots[slotIndex] then
 		activateSlot(slots[slotIndex])
@@ -2117,7 +2694,7 @@ end
 player.AttributeChanged:Connect(function(attribute)
 	if string.sub(attribute, 1, 9) == "Research_" then
 		refreshPanel()
-		refreshCards()
+		panels.refreshCards()
 	end
 end)
 

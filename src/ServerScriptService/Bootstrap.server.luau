@@ -14,6 +14,7 @@ local PlotService = require(Services:WaitForChild("PlotService"))
 local MachineService = require(Services:WaitForChild("MachineService"))
 local FarmMachineService = require(Services:WaitForChild("FarmMachineService"))
 local ResearchService = require(Services:WaitForChild("ResearchService"))
+local SmogService = require(Services:WaitForChild("SmogService"))
 local CommitmentService = require(Services:WaitForChild("CommitmentService"))
 local TruckService = require(Services:WaitForChild("TruckService"))
 local WorldLabelService = require(Services:WaitForChild("WorldLabelService"))
@@ -41,12 +42,14 @@ world:SetAttribute("WindDirection", GameConfig.Wind.Label)
 -- MachineService creates the shared remotes, so it starts before the services that notify.
 -- Before MachineService, which places the buyer's IN port from its collision block.
 WorldArtService:EnlargeBuyer(world)
+WorldArtService:PrepareVillage(world)
 -- After the buyer grows and before MachineService reads the road sizes for placement rules.
 EnvironmentService:Initialize(world)
 MachineService:Initialize(world, PlayerStateService)
 -- Registers the transplanter and combine with MachineService before anyone can place one.
 FarmMachineService:Initialize(MachineService, PlayerStateService)
 ResearchService:Initialize(MachineService, PlayerStateService)
+SmogService:Initialize(world, GameConfig, PlayerStateService, MachineService)
 FieldService:Initialize(world, PlayerStateService, SmokeService, GameConfig, MachineService)
 PlotService:Initialize(world, PlayerStateService, SmokeService, GameConfig, MachineService)
 CommitmentService:Initialize(world, PlayerStateService, SmokeService, MachineService, GameConfig)
