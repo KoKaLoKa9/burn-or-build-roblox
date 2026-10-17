@@ -185,15 +185,25 @@ local unreadDot = iconPart(
 unreadDot.Visible = false
 UITheme.corner(unreadDot, 5)
 
--- Everything else lives in this panel under the chips.
-local statsPanel = Instance.new("Frame")
+-- Everything else lives in a scrolling window in the middle of the screen. Its height is capped
+-- and it sits a little above centre, so it never reaches the hotbar.
+local statsPanel = Instance.new("ScrollingFrame")
 statsPanel.Name = "StatsPanel"
-statsPanel.Size = UDim2.fromOffset(CARD_WIDTH, 0)
-statsPanel.AutomaticSize = Enum.AutomaticSize.Y
+statsPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+statsPanel.Position = UDim2.new(0.5, 0, 0.5, -60)
+statsPanel.Size = UDim2.new(0, CARD_WIDTH + 12, 0.6, 0)
 statsPanel.BackgroundTransparency = 1
-statsPanel.LayoutOrder = 4
+statsPanel.BorderSizePixel = 0
+statsPanel.ScrollBarThickness = 6
+statsPanel.ScrollBarImageColor3 = Colors.Muted
+statsPanel.CanvasSize = UDim2.new()
+statsPanel.AutomaticCanvasSize = Enum.AutomaticSize.Y
+statsPanel.ScrollingDirection = Enum.ScrollingDirection.Y
 statsPanel.Visible = false
-statsPanel.Parent = column
+statsPanel.Parent = screenGui
+local statsLimit = Instance.new("UISizeConstraint")
+statsLimit.MaxSize = Vector2.new(CARD_WIDTH + 12, 460)
+statsLimit.Parent = statsPanel
 UITheme.list(statsPanel, 10)
 
 local statsOpen = false
