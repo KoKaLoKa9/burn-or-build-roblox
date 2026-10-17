@@ -606,6 +606,43 @@ function Houses.SchoolCampus(ground: CFrame, _rng: Random): Model
 		blue,
 		nil
 	)
+	-- Shown only on smog days (VillageService): the gate shut and a closure notice.
+	local gate = part(
+		model,
+		"ClosedGate",
+		Vector3.new(10.6, 3.6, 0.3),
+		ground * CFrame.new(0, 1.8, -21.7),
+		Color3.fromRGB(90, 96, 104),
+		Enum.Material.DiamondPlate,
+		false
+	)
+	gate.Transparency = 1
+	local sign = part(
+		model,
+		"ClosedSign",
+		Vector3.new(9, 3, 0.3),
+		ground * CFrame.new(0, 8.2, -22),
+		Color3.fromRGB(200, 52, 40),
+		nil,
+		false
+	)
+	sign.Transparency = 1
+	local surface = Instance.new("SurfaceGui")
+	surface.Name = "Notice"
+	surface.Face = Enum.NormalId.Front
+	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	surface.PixelsPerStud = 40
+	surface.Enabled = false
+	surface.Parent = sign
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.fromScale(1, 1)
+	text.BackgroundTransparency = 1
+	text.Text = "CLOSED\nSMOG DAY"
+	text.TextScaled = true
+	text.FontFace =
+		Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.ExtraBold)
+	text.TextColor3 = Color3.new(1, 1, 1)
+	text.Parent = surface
 	return model
 end
 

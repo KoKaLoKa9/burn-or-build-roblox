@@ -510,6 +510,14 @@ function PaddyField.new(options: Options): Handle
 		for _, player in blamed do
 			playerState:AdjustTrust(player, -options.burnTrustLoss)
 		end
+		if triggeringPlayer then
+			-- Villagers and the cooperative react to how often you burn (VillageService).
+			local burns = triggeringPlayer:GetAttribute("Burns")
+			triggeringPlayer:SetAttribute(
+				"Burns",
+				(if typeof(burns) == "number" then burns else 0) + 1
+			)
+		end
 		local burnRules = options.gameConfig.Burn
 		if triggeringPlayer and options.world:GetAttribute("BurnBan") == true then
 			-- Smog season: open burning is banned, like the burn bans in northern Thailand.

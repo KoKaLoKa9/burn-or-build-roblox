@@ -79,6 +79,11 @@ function SmogService:Initialize(
 		local passed = schoolSteps[player] or 0
 		if steps > passed then
 			schoolSteps[player] = steps
+			-- The campus shuts for a while (VillageService shows it and the teacher speaks up).
+			world:SetAttribute(
+				"SchoolClosedUntil",
+				workspace:GetServerTimeNow() + gameConfig.Village.SchoolClosedSeconds
+			)
 			playerState:AdjustTrust(player, -rules.SchoolTrustLoss * (steps - passed))
 			machineService:Notify(
 				player,

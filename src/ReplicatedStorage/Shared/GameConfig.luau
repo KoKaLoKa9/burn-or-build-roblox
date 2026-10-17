@@ -78,6 +78,19 @@ local GameConfig = {
 		LowTrustPrice = 0.85,
 		RefuseTrust = 20,
 	},
+	-- Village life (Week 6 reactions pass). Balance assumptions.
+	Village = {
+		-- A cattle farmer buys raw straw as feed: small money, but better than burning it.
+		CattleFeedPrice = 8,
+		-- Village requests: a new one this long after the last ends, each open this long.
+		RequestGapSeconds = 45,
+		RequestSeconds = 180,
+		-- After this many of your own burns, the cooperative lends you a dryer to try the
+		-- other way (once per player).
+		LoanAfterBurns = 3,
+		-- How long the school stays shut on a smog day.
+		SchoolClosedSeconds = 90,
+	},
 	-- Week 5: paddy plots the player can buy and farm like their own field. Balance assumptions.
 	Plots = {
 		Price = 300,
