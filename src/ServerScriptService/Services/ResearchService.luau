@@ -118,6 +118,11 @@ local function tick(dt: number)
 		local world = workspace:FindFirstChild("BurnOrBuildWorld")
 		local smoggy = world ~= nil and world:GetAttribute("SmogActive") == true
 		local rate = if smoggy then GameConfig.Smog.ResearchRate else 1
+		-- The office's computers need power (PowerService): research runs at its power share.
+		local office = offices[player]
+		if office then
+			rate *= office.node.powerRatio
+		end
 		local points = readNumber(player, "ResearchPoints")
 			+ engineers * rate * dt / ResearchDefinitions.SecondsPerPoint
 		local active = project(player)

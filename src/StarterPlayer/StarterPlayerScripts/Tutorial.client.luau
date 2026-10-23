@@ -47,6 +47,11 @@ local steps: { Step } = {
 		done = false,
 	},
 	{
+		title = "Power your factory",
+		detail = "Machines need power. Place the solar panels or hand crank from your bag (B) beside the dryer. Poles carry power further.",
+		done = false,
+	},
+	{
 		title = "Build a shredder and pellet mill",
 		detail = "Place them in order: dryer, then shredder, then pellet mill.",
 		done = false,
@@ -259,14 +264,19 @@ local function scanProduction()
 	if owned.Dryer then
 		complete(3)
 	end
-	if owned.Shredder and owned.PelletMill then
+	local supply = player:GetAttribute("PowerSupplyKW")
+	if typeof(supply) == "number" and supply > 0 and owned.Dryer then
 		complete(4)
+	end
+	if owned.Shredder and owned.PelletMill then
+		complete(5)
 	end
 	local conveyors = production:FindFirstChild("Conveyors")
 	if conveyors then
 		for _, tile in conveyors:GetChildren() do
-			if ownsThis(tile) then
-				complete(5)
+			-- Belts only: pipes are not part of the first batch.
+			if ownsThis(tile) and tile:GetAttribute("Medium") == "Item" then
+				complete(6)
 				break
 			end
 		end

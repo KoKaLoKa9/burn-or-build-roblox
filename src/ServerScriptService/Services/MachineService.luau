@@ -15,6 +15,7 @@ local PipeDefinitions = require(Shared:WaitForChild("PipeDefinitions"))
 local PipeRoute = require(Shared:WaitForChild("PipeRoute"))
 local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
 local ConveyorTile = require(Shared:WaitForChild("ConveyorTile"))
+local PipeTile = require(Shared:WaitForChild("PipeTile"))
 local MachineDefinitions = require(Shared:WaitForChild("MachineDefinitions"))
 local ResearchDefinitions = require(Shared:WaitForChild("ResearchDefinitions"))
 local PlacementRules = require(Shared:WaitForChild("PlacementRules"))
@@ -46,7 +47,12 @@ type MachineRecord = {
 	exhaust: ParticleEmitter?,
 	-- Farm machines only: the paddy the machine works.
 	paddy: Model?,
+	-- Where the player put it, so SaveService can place it again next visit.
+	layout: SavedMachine?,
 }
+
+export type SavedMachine = { id: string, x: number, y: number, z: number, rot: number }
+export type SavedTile = { x: number, z: number, dir: number, medium: string }
 
 -- Hooks another service registers for a machine Kind.
 type KindHandler = {
@@ -64,6 +70,8 @@ type PipeVisual = {
 	baseColor: Color3,
 	label: TextLabel,
 	itemParts: { BasePart },
+	-- Belts are glass, so their bundles show; pipes are opaque.
+	showItems: boolean,
 }
 
 local line = ProductionLine.new(MachineDefinitions)
@@ -72,9 +80,21 @@ local belts: { [number]: PipeVisual } = {}
 local blockers: { [number]: PlacementRules.Rect } = {}
 local kindHandlers: { [string]: KindHandler } = {}
 local roadRects: { PlacementRules.Rect } = {}
+-- Other services (PowerService, SmogService) hook into the tick and machine changes.
+local beforeStepHooks: { (dt: number) -> () } = {}
+local eventHooks: { (events: { any }) -> () } = {}
+local changedHooks: { () -> () } = {}
 local intakeNodeId = 0
 
-type TileRecord = { ix: number, iz: number, dir: number, owner: Player?, model: Model? }
+-- medium is Item (a conveyor), Fluid or Gas (pipes). A cell holds one tile of any medium.
+type TileRecord = {
+	ix: number,
+	iz: number,
+	dir: number,
+	owner: Player?,
+	model: Model?,
+	medium: string,
+}
 type BeltLink = { linkId: number, toId: number, toPort: string, signature: string }
 local tiles: { [string]: TileRecord } = {}
 -- Keyed by "<machine id>:<port name>" of the output port the belt starts at.
@@ -87,6 +107,8 @@ type BeltWant = {
 	toPort: string,
 	cells: { string },
 	port: BasePart,
+	medium: string,
+	inPort: BasePart,
 }
 local conveyorFolder: Folder
 -- Filled in by the conveyor section below. A placed or removed machine can complete or break belts.
@@ -460,8 +482,8 @@ local function dismantle(player: Player, nodeId: number)
 	end
 	record.model:Destroy()
 	records[nodeId] = nil
-	onMachinesChanged()
 	blockers[nodeId] = nil
+	onMachinesChanged()
 	notify(
 		player,
 		string.format(
@@ -516,6 +538,8 @@ end
 -- for straw, a steady plume while they process. It is steam, not PM2.5, so it adds no exposure.
 local EXHAUST_RATE: { [string]: number } = {
 	Processing = 7,
+	Generating = 7,
+	NoPower = 0,
 	Starved = 2.5,
 	Blocked = 2.5,
 	Idle = 2.5,
@@ -698,7 +722,11 @@ local function placeMachine(
 	local node = line:AddNode(definitionId, player)
 	local bodyCFrame = PlacementRules.BodyCFrame(definition, position, rotationSteps, groundY)
 	local model, body = buildMachineModel(definition, bodyCFrame, definitionId)
+	-- Working machines and power parts get a small two-line label; depots keep the large one.
 	local compact = definition.Kind == "Processor"
+		or definition.Kind == "Generator"
+		or definition.Kind == "Battery"
+		or definition.Kind == "Pole"
 	local statusLabel = createWorldLabel(
 		body,
 		if compact then 11 else 15,
@@ -708,13 +736,21 @@ local function placeMachine(
 	)
 	register(node, model, statusLabel, definition.Cost, player)
 	records[node.id].paddy = paddy
+	records[node.id].layout = {
+		id = definitionId,
+		x = position.X,
+		y = position.Y,
+		z = position.Z,
+		rot = rotationSteps,
+	}
 	if compact then
 		records[node.id].exhaust = createExhaust(body, definition)
 	end
 	blockers[node.id] = PlacementRules.RectAt(definition, position, rotationSteps)
 
 	local prompts: { ProximityPrompt } = {}
-	if definition.Kind == "Storage" then
+	-- Only storage that takes several materials (covered storage) has a material setting.
+	if definition.Kind == "Storage" and #definition.StoresItems > 1 then
 		local materialPrompt = createPrompt(
 			body,
 			"MaterialPrompt",
@@ -732,9 +768,11 @@ local function placeMachine(
 		definition.Kind == "Processor"
 		or definition.Kind == "Storage"
 		or definition.Kind == "Farm"
+		or definition.Kind == "Generator"
 	then
 		local action = if definition.Kind == "Storage"
 			then "Pause / resume output"
+			elseif definition.Kind == "Generator" then "Switch on / off"
 			else "Pause / resume"
 		local pausePrompt =
 			createPrompt(body, "PausePrompt", action, definition.DisplayName, Enum.KeyCode.F, 0)
@@ -772,8 +810,23 @@ end
 -- Players lay belts one tile at a time. Whenever tiles or machines change, every machine output is
 -- traced along the tiles; a chain that ends pointing into an input becomes a simulation link.
 
-local TILE_COST = PipeDefinitions.Types.Item.Cost
 local PLOT_MARGIN = 2
+
+local function tileCost(medium: string): number
+	local pipe = PipeDefinitions.Types[medium]
+	return if pipe then pipe.Cost or 0 else 0
+end
+
+-- The tiles of one medium only, so belts and pipes never join each other.
+local function layerOf(medium: string): { [string]: TileRecord }
+	local layer = {}
+	for key, tile in tiles do
+		if tile.medium == medium then
+			layer[key] = tile
+		end
+	end
+	return layer
+end
 
 local function itemHeight(): number
 	return floorTopY + ConveyorTile.BeltTop + 0.55
@@ -800,12 +853,12 @@ type PortMaps = {
 	inputPorts: { [string]: BasePart },
 }
 
--- Belt ends: every item port on every machine. Fluid and gas ports wait for their pipes.
-local function collectPorts(): PortMaps
+-- Line ends of one medium: every item port for belts, every fluid or gas port for pipes.
+local function collectPorts(medium: string): PortMaps
 	local maps: PortMaps = { outputs = {}, inputs = {}, feedSides = {}, inputPorts = {} }
 	for id, record in records do
 		for _, port in portParts(record) do
-			if port:GetAttribute("PortMedium") ~= "Item" then
+			if port:GetAttribute("PortMedium") ~= medium then
 				continue
 			end
 			local name = tostring(port:GetAttribute("PortName"))
@@ -830,10 +883,13 @@ local function renderTile(key: string, feedSides: { [string]: number })
 	if tile.model then
 		tile.model:Destroy()
 	end
-	local open = ConveyorGrid.OpenSides(tiles :: any, tile :: any, feedSides[key])
-	local model = ConveyorTile.Build(tile.dir, open)
+	local open = ConveyorGrid.OpenSides(layerOf(tile.medium) :: any, tile :: any, feedSides[key])
+	local model = if tile.medium == "Item"
+		then ConveyorTile.Build(tile.dir, open)
+		else PipeTile.Build(tile.medium, tile.dir, open)
 	local x, z = ConveyorGrid.Center(tile.ix, tile.iz)
 	model:PivotTo(CFrame.new(x, floorTopY, z))
+	model:SetAttribute("Medium", tile.medium)
 	model:SetAttribute("CellX", tile.ix)
 	model:SetAttribute("CellZ", tile.iz)
 	model:SetAttribute("Dir", tile.dir)
@@ -842,11 +898,25 @@ local function renderTile(key: string, feedSides: { [string]: number })
 	tile.model = model
 end
 
-local function renderAround(ix: number, iz: number, feedSides: { [string]: number })
-	renderTile(ConveyorGrid.Key(ix, iz), feedSides)
+-- Redraws a tile and its neighbours, each with the port feeds of its own medium.
+local function renderAround(ix: number, iz: number)
+	local feeds: { [string]: { [string]: number } } = {}
+	local function redraw(key: string)
+		local tile = tiles[key]
+		if tile == nil then
+			return
+		end
+		local feedSides = feeds[tile.medium]
+		if feedSides == nil then
+			feedSides = collectPorts(tile.medium).feedSides
+			feeds[tile.medium] = feedSides
+		end
+		renderTile(key, feedSides)
+	end
+	redraw(ConveyorGrid.Key(ix, iz))
 	for side = 0, 3 do
 		local nx, nz = ConveyorGrid.Step(ix, iz, side)
-		renderTile(ConveyorGrid.Key(nx, nz), feedSides)
+		redraw(ConveyorGrid.Key(nx, nz))
 	end
 end
 
@@ -887,21 +957,27 @@ end
 -- Re-traces every belt and keeps simulation links in step. Returns messages worth telling the
 -- player, such as a belt that reached a machine that cannot take that material.
 local function recomputeBelts(): { string }
-	local maps = collectPorts()
 	local messages: { string } = {}
+	-- Keyed by "<medium>:<machine id>:<port name>" of the output a line starts at.
 	local wanted: { [string]: BeltWant } = {}
-	for _, output in maps.outputs do
-		local fromId = output.record.node.id
-		local chain = ConveyorGrid.Trace(tiles :: any, output.key, maps.inputs :: any, fromId)
-		if chain.toId and chain.toPort then
-			wanted[portKey(fromId, output.name)] = {
-				fromId = fromId,
-				fromPort = output.name,
-				toId = chain.toId,
-				toPort = chain.toPort,
-				cells = chain.cells,
-				port = output.port,
-			}
+	for _, medium in PipeDefinitions.Order do
+		local maps = collectPorts(medium)
+		local layer = layerOf(medium)
+		for _, output in maps.outputs do
+			local fromId = output.record.node.id
+			local chain = ConveyorGrid.Trace(layer :: any, output.key, maps.inputs :: any, fromId)
+			if chain.toId and chain.toPort then
+				wanted[medium .. ":" .. portKey(fromId, output.name)] = {
+					fromId = fromId,
+					fromPort = output.name,
+					toId = chain.toId,
+					toPort = chain.toPort,
+					cells = chain.cells,
+					port = output.port,
+					medium = medium,
+					inPort = maps.inputPorts[portKey(chain.toId, chain.toPort)],
+				}
+			end
 		end
 	end
 
@@ -935,14 +1011,15 @@ local function recomputeBelts(): { string }
 				local x, z = ConveyorGrid.Center(tile.ix, tile.iz)
 				table.insert(points, Vector3.new(x, height, z))
 			end
-			local inPort = maps.inputPorts[portKey(want.toId, want.toPort)]
+			local inPort = want.inPort
 			table.insert(points, Vector3.new(inPort.Position.X, height, inPort.Position.Z))
 			local length = PipeRoute.Length(points)
+			local pipe = PipeDefinitions.Types[want.medium]
 
 			local link, message = line:Connect(
 				fromId,
 				want.toId,
-				length / PipeDefinitions.StudsPerSecond,
+				length / (pipe.StudsPerSecond or PipeDefinitions.StudsPerSecond),
 				want.fromPort,
 				want.toPort
 			)
@@ -971,17 +1048,19 @@ local function recomputeBelts(): { string }
 					baseColor = Color3.new(1, 1, 1),
 					label = label,
 					itemParts = {},
+					showItems = want.medium == "Item",
 				}
 				table.insert(
 					messages,
 					string.format(
-						"Belt connected: %s to %s.",
+						"%s connected: %s to %s.",
+						pipe.DisplayName,
 						records[fromId].node.definition.DisplayName,
 						records[want.toId].node.definition.DisplayName
 					)
 				)
 			else
-				table.insert(messages, "Belt not connected: " .. message)
+				table.insert(messages, pipe.DisplayName .. " not connected: " .. message)
 			end
 		end
 	end
@@ -989,15 +1068,22 @@ local function recomputeBelts(): { string }
 end
 
 local function renderAllTiles()
-	local maps = collectPorts()
-	for key in tiles do
-		renderTile(key, maps.feedSides)
+	for _, medium in PipeDefinitions.Order do
+		local feedSides = collectPorts(medium).feedSides
+		for key, tile in tiles do
+			if tile.medium == medium then
+				renderTile(key, feedSides)
+			end
+		end
 	end
 end
 
 onMachinesChanged = function()
 	renderAllTiles()
 	recomputeBelts()
+	for _, hook in changedHooks do
+		hook()
+	end
 end
 
 local function cellArguments(rawX: unknown, rawZ: unknown): (number?, number?)
@@ -1014,11 +1100,21 @@ local function placeConveyor(
 	player: Player,
 	rawX: unknown,
 	rawZ: unknown,
-	rawDir: unknown
+	rawDir: unknown,
+	rawMedium: unknown,
+	-- Restoring a saved factory lays tiles without charging again. Never set from a remote.
+	free: boolean?
 ): (boolean, string)
 	local ix, iz = cellArguments(rawX, rawZ)
 	if ix == nil or iz == nil or typeof(rawDir) ~= "number" then
 		return false, "Invalid belt request."
+	end
+	local medium = if typeof(rawMedium) == "string" and PipeDefinitions.Types[rawMedium]
+		then rawMedium
+		else "Item"
+	local pipe = PipeDefinitions.Types[medium]
+	if not pipe.Ready then
+		return false, pipe.DisplayName .. "s are not available yet."
 	end
 	local dir = math.floor(rawDir) % 4
 	local key = ConveyorGrid.Key(ix, iz)
@@ -1026,6 +1122,9 @@ local function placeConveyor(
 	if existing then
 		if existing.owner ~= player then
 			return false, "That belt belongs to another player."
+		end
+		if existing.medium ~= medium then
+			return false, "Something is already laid on that tile. Delete it first."
 		end
 		if existing.dir == dir then
 			return true, ""
@@ -1047,15 +1146,19 @@ local function placeConveyor(
 				return false, "A machine is in the way."
 			end
 		end
-		if playerState:GetCredits(player) < TILE_COST then
-			return false, "You need more credits for another belt tile."
+		local cost = if free then 0 else tileCost(medium)
+		if playerState:GetCredits(player) < cost then
+			return false,
+				string.format(
+					"You need more credits for another %s tile.",
+					string.lower(pipe.DisplayName)
+				)
 		end
-		playerState:AdjustCredits(player, -TILE_COST, "Construction")
-		tiles[key] = { ix = ix, iz = iz, dir = dir, owner = player, model = nil }
+		playerState:AdjustCredits(player, -cost, "Construction")
+		tiles[key] = { ix = ix, iz = iz, dir = dir, owner = player, model = nil, medium = medium }
 	end
 
-	local maps = collectPorts()
-	renderAround(ix, iz, maps.feedSides)
+	renderAround(ix, iz)
 	local messages = recomputeBelts()
 	return true, if #messages > 0 then messages[#messages] else ""
 end
@@ -1086,9 +1189,8 @@ local function removeConveyor(player: Player, rawX: unknown, rawZ: unknown): (bo
 		tile.model:Destroy()
 	end
 	tiles[key] = nil
-	playerState:AdjustCredits(player, TILE_COST, "Refund")
-	local maps = collectPorts()
-	renderAround(ix, iz, maps.feedSides)
+	playerState:AdjustCredits(player, tileCost(tile.medium), "Refund")
+	renderAround(ix, iz)
 	recomputeBelts()
 	return true, ""
 end
@@ -1193,6 +1295,8 @@ end
 
 local PROCESSOR_STATE_WORDS: { [string]: string } = {
 	Processing = "Working",
+	Generating = "Generating",
+	NoPower = "No power",
 	Starved = "Waiting for straw",
 	Blocked = "Output full",
 	Paused = "Paused",
@@ -1200,6 +1304,8 @@ local PROCESSOR_STATE_WORDS: { [string]: string } = {
 }
 local PROCESSOR_STATE_COLORS: { [string]: string } = {
 	Processing = "#68D88E",
+	Generating = "#68D88E",
+	NoPower = "#F06246",
 	Starved = "#F6BE48",
 	Blocked = "#F06246",
 	Paused = "#92A49D",
@@ -1258,6 +1364,14 @@ local function describe(record: MachineRecord): string
 		)
 	end
 	local word = PROCESSOR_STATE_WORDS[node.state] or readable(node.state)
+	local lowPower = node.state == "Processing" and node.powerRatio < 0.999
+	local idleGenerator = node.kind == "Generator" and node.state ~= "Generating"
+	if idleGenerator then
+		-- Out of fuel or uncranked: say what it needs.
+		word = node.reason
+	elseif lowPower then
+		word = string.format("Low power %d%%", math.floor(node.powerRatio * 100))
+	end
 	local color = PROCESSOR_STATE_COLORS[node.state] or "#F0EEE4"
 	return string.format('%s\n<font color="%s">%s</font>', name, color, word)
 end
@@ -1278,6 +1392,9 @@ local function refreshVisuals()
 		local link = line.links[linkId]
 		if link == nil then
 			removeBelt(linkId)
+			continue
+		end
+		if not visual.showItems then
 			continue
 		end
 
@@ -1370,6 +1487,34 @@ local function handleEvents(events: { any })
 	end
 end
 
+-- Runs before every simulation step with the step length (PowerService shares power here).
+function MachineService:OnBeforeStep(hook: (dt: number) -> ())
+	table.insert(beforeStepHooks, hook)
+end
+
+-- Receives every batch of simulation events, after sales and costs are paid.
+function MachineService:OnEvents(hook: (events: { any }) -> ())
+	table.insert(eventHooks, hook)
+end
+
+-- Runs whenever a machine is placed or removed.
+function MachineService:OnMachinesChanged(hook: () -> ())
+	table.insert(changedHooks, hook)
+end
+
+function MachineService:GetLine(): any
+	return line
+end
+
+function MachineService:GetRecords(): { [number]: MachineRecord }
+	return records
+end
+
+-- The floor area a placed machine covers.
+function MachineService:GetFootprint(nodeId: number): PlacementRules.Rect?
+	return blockers[nodeId]
+end
+
 function MachineService:RegisterKindHandler(kind: string, handler: KindHandler)
 	kindHandlers[kind] = handler
 end
@@ -1406,7 +1551,7 @@ function MachineService:GetInfrastructureValue(player: Player): number
 	end
 	for _, tile in tiles do
 		if tile.owner == player then
-			total += TILE_COST
+			total += tileCost(tile.medium)
 		end
 	end
 	local catalog: { [string]: any } = MachineDefinitions
@@ -1428,6 +1573,106 @@ function MachineService:GetProcessorStates(): { [number]: { name: string, state:
 		end
 	end
 	return samples
+end
+
+-- Everything this player has built, for SaveService.
+function MachineService:ExportLayout(
+	player: Player
+): { machines: { SavedMachine }, tiles: { SavedTile } }
+	local machines: { SavedMachine } = {}
+	for _, record in records do
+		if record.owner == player and record.layout then
+			table.insert(machines, record.layout)
+		end
+	end
+	local saved: { SavedTile } = {}
+	for _, tile in tiles do
+		if tile.owner == player then
+			table.insert(saved, { x = tile.ix, z = tile.iz, dir = tile.dir, medium = tile.medium })
+		end
+	end
+	return { machines = machines, tiles = saved }
+end
+
+-- Studio play tests only (DebugBridge "roundtrip"): removes everything a player built, contents
+-- and all, so a saved layout can be rebuilt from scratch.
+function MachineService:ClearPlayerForTest(player: Player)
+	for nodeId, record in records do
+		if record.owner == player then
+			local node = record.node
+			for _, link in line:LinksOf(node) do
+				table.clear(link.items)
+				line:Disconnect(link.id)
+				removeBelt(link.id)
+			end
+			table.clear(node.input)
+			table.clear(node.output)
+			table.clear(node.held)
+			table.clear(node.reserved)
+			line:RemoveNode(nodeId)
+			local handler = kindHandlers[node.kind]
+			if handler and handler.onRemoved then
+				handler.onRemoved(record)
+			end
+			record.model:Destroy()
+			records[nodeId] = nil
+			blockers[nodeId] = nil
+		end
+	end
+	for key, tile in tiles do
+		if tile.owner == player then
+			if tile.model then
+				tile.model:Destroy()
+			end
+			tiles[key] = nil
+		end
+	end
+	table.clear(conveyorLinks)
+	onMachinesChanged()
+end
+
+-- Rebuilds a saved factory for free: each machine goes into the inventory and is placed from
+-- there, so anything that no longer fits simply stays in the player's bag.
+function MachineService:ImportLayout(player: Player, layout: any)
+	if typeof(layout) ~= "table" then
+		return
+	end
+	local placed, kept = 0, 0
+	for _, saved in layout.machines or {} do
+		local definition = MachineDefinitions[saved.id]
+		if definition and definition.Placeable then
+			setOwned(player, saved.id, owned(player, saved.id) + 1)
+			local ok = placeMachine(
+				player,
+				saved.id,
+				Vector3.new(saved.x, saved.y or floorTopY, saved.z),
+				saved.rot or 0
+			)
+			if ok then
+				placed += 1
+			else
+				kept += 1
+			end
+		end
+	end
+	for _, saved in layout.tiles or {} do
+		placeConveyor(player, saved.x, saved.z, saved.dir, saved.medium, true)
+	end
+	if placed + kept > 0 then
+		notify(
+			player,
+			if kept > 0
+				then string.format(
+					"Welcome back. Rebuilt %d machines; %d did not fit and wait in your bag (B).",
+					placed,
+					kept
+				)
+				else string.format(
+					"Welcome back. Your factory is as you left it (%d machines).",
+					placed
+				)
+		)
+	end
 end
 
 -- Unloads truck cargo into the fixed factory intake. Returns how many bundles fit.
@@ -1511,7 +1756,15 @@ function MachineService:Initialize(world: Model, playerStateService: any)
 	placeRemote.OnServerInvoke = placeMachine
 	buyRemote.OnServerInvoke = buyItem
 	sellRemote.OnServerInvoke = sellItem
-	placeConveyorRemote.OnServerInvoke = placeConveyor
+	placeConveyorRemote.OnServerInvoke = function(
+		player: Player,
+		x: unknown,
+		z: unknown,
+		dir: unknown,
+		medium: unknown
+	): (boolean, string)
+		return placeConveyor(player, x, z, dir, medium, false)
+	end
 	removeConveyorRemote.OnServerInvoke = removeConveyor
 	-- The Delete tool. dismantle() checks ownership and emptiness and tells the player the result.
 	deleteMachineRemote.OnServerInvoke = function(player: Player, nodeId: unknown): boolean
@@ -1530,7 +1783,14 @@ function MachineService:Initialize(world: Model, playerStateService: any)
 		end
 		local step = accumulated
 		accumulated = 0
-		handleEvents(line:Step(step))
+		for _, hook in beforeStepHooks do
+			hook(step)
+		end
+		local events = line:Step(step)
+		handleEvents(events)
+		for _, hook in eventHooks do
+			hook(events)
+		end
 		refreshVisuals()
 	end)
 

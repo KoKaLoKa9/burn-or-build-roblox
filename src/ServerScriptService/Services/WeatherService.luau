@@ -100,6 +100,25 @@ function WeatherService:SetPlan(newPlan: SeasonClock.WeatherPlan)
 	world:SetAttribute("WeatherEndsAt", if newPlan.endsAt then seasonStart + newPlan.endsAt else 0)
 end
 
+-- A new year (endless mode): clear this year's event and go back to the usual wind.
+function WeatherService:Reset(startTime: number)
+	plan = nil
+	seasonStart = startTime
+	lastState = "Calm"
+	machineService:SetCycleMultiplier("Dryer", 1)
+	applyWind(
+		baseWind.label,
+		baseWind.x,
+		baseWind.z,
+		SeasonDefinitions.Weather.BaseWind.Destination
+	)
+	setRainVisible(false)
+	world:SetAttribute("WeatherState", "Calm")
+	world:SetAttribute("WeatherActive", "")
+	world:SetAttribute("WeatherEvent", nil)
+	world:SetAttribute("WeatherMessage", nil)
+end
+
 function WeatherService:GetPlan(): SeasonClock.WeatherPlan?
 	return plan
 end

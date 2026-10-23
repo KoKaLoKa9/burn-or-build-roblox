@@ -14,7 +14,7 @@ return {
 	WagePerInterval = 5,
 	WageIntervalSeconds = 30,
 
-	Order = { "FarmMachines", "Baler", "Market", "Kiln", "Mushroom" },
+	Order = { "FarmMachines", "Baler", "Market", "Kiln", "Mushroom", "Steam", "Biogas" },
 	Projects = {
 		FarmMachines = {
 			DisplayName = "Farm machines",
@@ -42,6 +42,17 @@ return {
 			Points = 8,
 			Requires = "Market",
 			Blurb = "2 wet straw into 1 basket of straw mushrooms worth 180. No dryer needed.",
+		},
+		Steam = {
+			DisplayName = "Steam power",
+			Points = 6,
+			Blurb = "Straw boiler and steam turbine: water and dry straw into 50 kW of steam power.",
+		},
+		Biogas = {
+			DisplayName = "Biogas",
+			Points = 10,
+			Requires = "Steam",
+			Blurb = "Cattle shed, anaerobic digester and biogas engine: straw and manure into clean power and fertiliser.",
 		},
 	},
 }

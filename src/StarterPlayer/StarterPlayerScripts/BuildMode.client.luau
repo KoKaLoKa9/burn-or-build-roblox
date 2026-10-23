@@ -23,6 +23,7 @@ local PipeDefinitions = require(Shared:WaitForChild("PipeDefinitions"))
 local PipeRoute = require(Shared:WaitForChild("PipeRoute"))
 local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
 local ConveyorTile = require(Shared:WaitForChild("ConveyorTile"))
+local PipeTile = require(Shared:WaitForChild("PipeTile"))
 local PlacementRules = require(Shared:WaitForChild("PlacementRules"))
 local PaddySites = require(Shared:WaitForChild("PaddySites"))
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
@@ -62,7 +63,21 @@ local CATALOG = { "Dryer", "Shredder", "PelletMill", "CoveredStorage", "TruckTer
 local FARM_CATALOG = { "Transplanter", "Combine", "Baler" }
 -- Week 6: the office runs research; tier 2 machines unlock through it.
 local OFFICE_CATALOG = { "CooperativeOffice" }
-local TIER2_CATALOG = { "MarketStall", "PyrolysisKiln", "MushroomHouse" }
+local TIER2_CATALOG =
+	{ "MarketStall", "PyrolysisKiln", "MushroomHouse", "CattleShed", "Digester", "GasEngine" }
+-- Industry update: every factory machine needs power from these.
+local POWER_CATALOG = {
+	"HandCrank",
+	"SolarPanel",
+	"PowerPole",
+	"Battery",
+	"StrawGenerator",
+	"DieselGenerator",
+	"WaterPump",
+	"WaterTank",
+	"Boiler",
+	"SteamTurbine",
+}
 
 type ItemInfo = { recipe: string, detail: string }
 local ITEM_INFO: { [string]: ItemInfo } = {
@@ -97,7 +112,7 @@ local ITEM_INFO: { [string]: ItemInfo } = {
 		detail = "One per player. Hire with T, pick a project with E",
 	},
 	MarketStall = {
-		recipe = "Buys pellets 135, biochar 240, mushrooms 180",
+		recipe = "Buys pellets 135, biochar 240, mushrooms 180, digestate 60",
 		detail = "Place at the end of any line",
 	},
 	PyrolysisKiln = {
@@ -107,6 +122,58 @@ local ITEM_INFO: { [string]: ItemInfo } = {
 	MushroomHouse = {
 		recipe = "2 Wet straw  ->  1 Mushroom basket",
 		detail = "One basket every 45 s. Soaked straw, no dryer needed",
+	},
+	HandCrank = {
+		recipe = "Hold E: 8 kW for 20 s",
+		detail = "Free power while you turn it, up to a minute banked",
+	},
+	SolarPanel = {
+		recipe = "3 kW from the sun",
+		detail = "Runs on its own. Smog halves it",
+	},
+	PowerPole = {
+		recipe = "Carries power 32 studs",
+		detail = "Links generators, batteries and machines into one network",
+	},
+	Battery = {
+		recipe = "Stores 3,000 kJ",
+		detail = "Soaks up spare power and covers shortfalls",
+	},
+	StrawGenerator = {
+		recipe = "1 Dry straw  ->  25 kW for 12 s",
+		detail = "A closed, filtered furnace: a little smog, far less than a field fire",
+	},
+	DieselGenerator = {
+		recipe = "20 kW, 5 credits every 10 s",
+		detail = "Bought fuel. Easy power that costs money and adds smog",
+	},
+	CattleShed = {
+		recipe = "2 Wet straw + 1 Water  ->  1 Manure",
+		detail = "Every 20 s. Water by fluid pipe",
+	},
+	Digester = {
+		recipe = "1 Shredded + 1 Manure + 2 Water  ->  4 Biogas + 1 Digestate",
+		detail = "Every 30 s. Biogas leaves by gas pipe; belt the digestate away or it stops",
+	},
+	GasEngine = {
+		recipe = "1 Biogas  ->  40 kW for 4 s",
+		detail = "Two digesters keep one engine running. Barely any smog",
+	},
+	WaterPump = {
+		recipe = "Pumps 1 water every 2 s",
+		detail = "Works anywhere. Needs 2 kW and a fluid pipe out",
+	},
+	WaterTank = {
+		recipe = "Holds 30 water",
+		detail = "Evens out pumps and boilers. Fluid pipes in and out",
+	},
+	Boiler = {
+		recipe = "1 Dry straw + 2 Water  ->  5 Steam",
+		detail = "Every 10 s. Water by fluid pipe, steam out by gas pipe",
+	},
+	SteamTurbine = {
+		recipe = "1 Steam  ->  50 kW for 1 s",
+		detail = "Two boilers keep one turbine spinning",
 	},
 }
 local ROTATION_NAMES = { "east", "north", "west", "south" }
@@ -120,6 +187,8 @@ for _, roadName in { "MainRoad", "FactoryRoad" } do
 end
 
 local mode = "None"
+-- What the Conveyor tool lays: Item (belts), Fluid or Gas (pipes).
+local transportMedium = "Item"
 local selectedId: string? = nil
 local rotationSteps = 0
 local snapEnabled = true
@@ -271,6 +340,7 @@ end
 
 local beltGhost: Model? = nil
 local beltGhostDir = -1
+local beltGhostMedium = ""
 local beltGhostColors: { [BasePart]: Color3 } = {}
 local beltGhostTint: Color3? = nil
 
@@ -281,6 +351,7 @@ local function clearBeltGhost()
 	end
 	table.clear(beltGhostColors)
 	beltGhostDir = -1
+	beltGhostMedium = ""
 	beltGhostTint = nil
 end
 
@@ -295,11 +366,14 @@ local function tintBeltGhost(tint: Color3)
 end
 
 local function ensureBeltGhost(dir: number)
-	if beltGhost and beltGhostDir == dir then
+	if beltGhost and beltGhostDir == dir and beltGhostMedium == transportMedium then
 		return
 	end
 	clearBeltGhost()
-	local model = ConveyorTile.Build(dir, { [dir] = true, [(dir + 2) % 4] = true })
+	local straight = { [dir] = true, [(dir + 2) % 4] = true }
+	local model = if transportMedium == "Item"
+		then ConveyorTile.Build(dir, straight)
+		else PipeTile.Build(transportMedium, dir, straight)
 	for _, descendant in model:GetDescendants() do
 		if descendant:IsA("BasePart") then
 			descendant.Transparency = 0.35
@@ -309,6 +383,7 @@ local function ensureBeltGhost(dir: number)
 	end
 	beltGhost = model
 	beltGhostDir = dir
+	beltGhostMedium = transportMedium
 end
 
 -- Screen --------------------------------------------------------------------------------------
@@ -402,6 +477,15 @@ for _, definitionId in OFFICE_CATALOG do
 		category = "Machines",
 	})
 end
+for _, definitionId in POWER_CATALOG do
+	addItem({
+		key = "Machine:" .. definitionId,
+		kind = "Machine",
+		id = definitionId,
+		name = MachineDefinitions[definitionId].DisplayName,
+		category = "Power",
+	})
+end
 for _, definitionId in FARM_CATALOG do
 	addItem({
 		key = "Machine:" .. definitionId,
@@ -436,11 +520,12 @@ local hotbarItems: { string } = {
 	"Machine:Dryer",
 	"Machine:Shredder",
 	"Machine:PelletMill",
-	"Machine:CoveredStorage",
-	"Machine:TruckTerminal",
+	-- The starting power kit sits right beside the first line it has to run.
+	"Machine:HandCrank",
+	"Machine:SolarPanel",
 	"Transport:Item",
-	"Machine:Transplanter",
-	"Machine:Combine",
+	"Machine:PowerPole",
+	"Machine:StrawGenerator",
 	-- The office is where research starts, so it gets the last key.
 	"Machine:CooperativeOffice",
 }
@@ -1082,7 +1167,7 @@ local function isSelected(slot: Slot): boolean
 		return false
 	end
 	if slot.kind == "Transport" then
-		return mode == "Conveyor" and slot.id == "Item"
+		return mode == "Conveyor" and slot.id == transportMedium
 	end
 	return mode == "Place" and selectedId == slot.id
 end
@@ -1158,7 +1243,14 @@ local function refreshPanel()
 	elseif mode == "Conveyor" then
 		setHints({
 			{ "LMB", "Place, drag to lay a line" },
-			{ "R", "Turn, belt runs " .. ROTATION_NAMES[beltDir + 1] },
+			{
+				"R",
+				string.format(
+					"Turn, %s runs %s",
+					if transportMedium == "Item" then "belt" else "pipe",
+					ROTATION_NAMES[beltDir + 1]
+				),
+			},
 			{ "RMB", "Remove tile" },
 			{ "Q", "Done" },
 		})
@@ -1267,6 +1359,7 @@ local function activateSlot(slot: Slot)
 			)
 			return
 		end
+		transportMedium = slot.id
 		setMode("Conveyor")
 	else
 		setMode("Place", slot.id)
@@ -1498,6 +1591,7 @@ do
 	local shopCards: { Card } = {}
 	local sectionGrids: { [string]: Frame } = {
 		Machines = createSection(shopList, 10, "Machines"),
+		Power = createSection(shopList, 12, "Power"),
 		Farm = createSection(shopList, 15, "Farm machines"),
 		Transport = createSection(shopList, 20, "Transport"),
 		Research = createSection(shopList, 30, "Tier 2 (research)"),
@@ -1627,6 +1721,9 @@ do
 		add("Price", string.format("%s credits", UITheme.formatNumber(definition.Cost or 0)))
 		add("Footprint", string.format("%d x %d studs", definition.Size.X, definition.Size.Z))
 		local kind = definition.Kind
+		if (definition.PowerKW or 0) > 0 then
+			add("Power use", string.format("%d kW while working", definition.PowerKW))
+		end
 		if kind == "Processor" then
 			add(
 				"Input",
@@ -1693,6 +1790,49 @@ do
 			if definition.Capacity then
 				add("Holds", string.format("%d bundles until you take them", definition.Capacity))
 			end
+		elseif kind == "Generator" then
+			add("Makes", string.format("%d kW", definition.PowerOutputKW))
+			if definition.Fuel == "Sun" then
+				add("Fuel", "Sunlight, dimmed by smog")
+			elseif definition.Fuel == "Crank" then
+				add(
+					"Fuel",
+					string.format(
+						"You: hold E for %d s of power, up to %d s banked",
+						definition.CrankSeconds,
+						definition.MaxCrankSeconds
+					)
+				)
+			elseif definition.Fuel == "Diesel" then
+				add(
+					"Fuel",
+					string.format(
+						"Diesel, %d credits every %d s",
+						definition.OperatingCostPerCycle,
+						definition.CycleSeconds
+					)
+				)
+			else
+				add(
+					"Fuel",
+					string.format(
+						"%d %s every %d s (conveyor in)",
+						definition.InputPerCycle,
+						itemName(definition.InputItem),
+						definition.CycleSeconds
+					)
+				)
+			end
+			if definition.SmogPerCycle then
+				add("Smog", "Adds a little to the district smog while it runs")
+			end
+			add("Reach", string.format("%d studs to poles and machines", definition.Reach))
+		elseif kind == "Battery" then
+			add("Stores", string.format("%s kJ", UITheme.formatNumber(definition.CapacityKJ)))
+			add("Rate", string.format("%d kW in or out", definition.RateKW))
+			add("Reach", string.format("%d studs", definition.Reach))
+		elseif kind == "Pole" then
+			add("Reach", string.format("%d studs to poles and machines", definition.Reach))
 		elseif kind == "Office" then
 			add("Staff", string.format("Up to %d engineers", ResearchDefinitions.MaxEngineers))
 			add(
@@ -2146,7 +2286,7 @@ do
 end
 
 -- Belt requests run one at a time in order, so a fast drag never lands out of sequence.
-type BeltRequest = { action: string, x: number, z: number, dir: number }
+type BeltRequest = { action: string, x: number, z: number, dir: number, medium: string }
 local beltQueue: { BeltRequest } = {}
 local beltWorker = false
 
@@ -2159,7 +2299,8 @@ local function runBeltQueue()
 		local request = table.remove(beltQueue, 1) :: BeltRequest
 		local _, message
 		if request.action == "place" then
-			_, message = placeConveyorRemote:InvokeServer(request.x, request.z, request.dir)
+			_, message =
+				placeConveyorRemote:InvokeServer(request.x, request.z, request.dir, request.medium)
 		else
 			_, message = removeConveyorRemote:InvokeServer(request.x, request.z)
 		end
@@ -2171,7 +2312,7 @@ local function runBeltQueue()
 end
 
 local function queueBelt(action: string, x: number, z: number, dir: number)
-	table.insert(beltQueue, { action = action, x = x, z = z, dir = dir })
+	table.insert(beltQueue, { action = action, x = x, z = z, dir = dir, medium = transportMedium })
 	task.spawn(runBeltQueue)
 end
 
@@ -2237,9 +2378,13 @@ refreshAccessCells = function()
 		for _, model in container:GetChildren() do
 			local body = if model:IsA("Model") then model.PrimaryPart else nil
 			if body and model:GetAttribute("MachineId") ~= nil then
-				-- Every item port is a belt end; gas and fluid ports wait for their pipes.
+				-- Every port of the medium being laid is a line end: item ports for belts,
+				-- fluid or gas ports for pipes.
 				for _, port in model:GetChildren() do
-					if port:IsA("BasePart") and port:GetAttribute("PortMedium") == "Item" then
+					if
+						port:IsA("BasePart")
+						and port:GetAttribute("PortMedium") == transportMedium
+					then
 						local offset = port.Position - body.Position
 						local flat = Vector3.new(offset.X, 0, offset.Z)
 						if flat.Magnitude > 1e-3 then

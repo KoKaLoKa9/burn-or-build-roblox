@@ -31,4 +31,26 @@ return {
 		DisplayName = "Syngas",
 		Color = Color3.fromRGB(232, 196, 74),
 	},
+	-- Industry update fluids and gases. They travel in pipes, one unit per few litres.
+	Water = {
+		DisplayName = "Water",
+		Color = Color3.fromRGB(70, 150, 220),
+	},
+	Steam = {
+		DisplayName = "Steam",
+		Color = Color3.fromRGB(236, 236, 236),
+	},
+	-- Biogas chain.
+	Manure = {
+		DisplayName = "Manure",
+		Color = Color3.fromRGB(96, 70, 44),
+	},
+	Biogas = {
+		DisplayName = "Biogas",
+		Color = Color3.fromRGB(150, 200, 90),
+	},
+	Digestate = {
+		DisplayName = "Digestate fertiliser",
+		Color = Color3.fromRGB(70, 90, 52),
+	},
 }

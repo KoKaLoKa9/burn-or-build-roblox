@@ -4,12 +4,14 @@
 -- Runs the server season clock from GameConfig.Round.DurationSeconds, publishes the phase and
 -- time left as world attributes for the HUD, drives the forecast weather event, and builds the
 -- end of season report with Simulation/SeasonResults. Players fetch their report through the
--- GetSeasonResults remote once the world attribute SeasonOver turns true.
+-- GetSeasonResults remote once the world attribute SeasonOver turns true. With
+-- GameConfig.Round.Endless the clock instead starts a new year (SeasonNumber) when it runs out.
 --
 -- Play test helpers (Studio server command bar):
 --   workspace.BurnOrBuildWorld:SetAttribute("ForcedWeatherEvent", "Rain") -- or "WindShift",
 --     before the forecast at minute 13
 --   workspace.BurnOrBuildWorld:SetAttribute("EndSeasonNow", true) -- jump to the results
+--   workspace.BurnOrBuildWorld:SetAttribute("NewYearNow", true) -- endless mode: start a new year
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -193,6 +195,7 @@ function SeasonService:Initialize(
 	startTime = now()
 	duration = config.Round.DurationSeconds
 
+	world:SetAttribute("SeasonNumber", 1)
 	world:SetAttribute("SeasonStartedAt", startTime)
 	world:SetAttribute("SeasonEndsAt", startTime + duration)
 	world:SetAttribute("SeasonDuration", duration)
@@ -220,12 +223,33 @@ function SeasonService:Initialize(
 	end)
 
 	-- Kind is rolled now; ForcedWeatherEvent can still override it until the forecast.
-	local roll = Random.new():NextNumber()
+	local random = Random.new()
+	local roll = random:NextNumber()
 	local forecastAt = SeasonClock.planWeather(SeasonDefinitions, duration, "Rain").forecastAt
 	local stress = SeasonClock.findPhase(SeasonDefinitions, duration, "Stress")
 	local stressStart = if stress then stress.startsAt else 0
 	local idleSeconds = 0
 	local lastPhase = ""
+
+	-- Endless mode: the year starts over. Fields, farms and the factory carry on; the clock,
+	-- the phases (and with them the burn ban) and the weather event begin again.
+	local function startNewYear()
+		startTime = now()
+		roll = random:NextNumber()
+		lastPhase = ""
+		bottlenecks = SeasonResults.newBottleneckLog()
+		local year = (world:GetAttribute("SeasonNumber") :: number? or 1) + 1
+		world:SetAttribute("SeasonNumber", year)
+		world:SetAttribute("SeasonStartedAt", startTime)
+		world:SetAttribute("SeasonEndsAt", startTime + duration)
+		weatherService:Reset(startTime)
+		machineService:NotifyAll(
+			string.format(
+				"Year %d begins. The harvest comes round again, and so will the smog season.",
+				year
+			)
+		)
+	end
 
 	task.spawn(function()
 		while not over do
@@ -272,15 +296,24 @@ function SeasonService:Initialize(
 				SeasonDefinitions.Results.BottleneckSeconds
 			)
 
+			if world:GetAttribute("NewYearNow") == true then
+				world:SetAttribute("NewYearNow", nil)
+				startNewYear()
+				continue
+			end
 			if world:GetAttribute("EndSeasonNow") == true then
 				endSeason("The season was ended early for a play test.")
 				break
 			end
 			if elapsed >= duration then
+				if gameConfig.Round.Endless then
+					startNewYear()
+					continue
+				end
 				endSeason(string.format("The %d minute season is over.", math.floor(duration / 60)))
 				break
 			end
-			if elapsed >= stressStart and factoryIsIdle() then
+			if not gameConfig.Round.Endless and elapsed >= stressStart and factoryIsIdle() then
 				if idleSeconds == 0 then
 					machineService:NotifyAll(
 						string.format(

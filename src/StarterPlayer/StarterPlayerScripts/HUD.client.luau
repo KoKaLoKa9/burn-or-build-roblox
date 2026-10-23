@@ -150,6 +150,19 @@ local function strawIcon(icon: Frame)
 	UITheme.corner(tie, 2)
 end
 
+-- A lightning bolt: two slanted bars.
+local function powerIcon(icon: Frame)
+	local top =
+		iconPart(icon, "BoltTop", UDim2.fromOffset(6, 14), UDim2.fromOffset(15, 8), Colors.Gold)
+	top.Rotation = 24
+	local bottom =
+		iconPart(icon, "BoltBottom", UDim2.fromOffset(6, 14), UDim2.fromOffset(11, 18), Colors.Gold)
+	bottom.Rotation = 24
+	local middle =
+		iconPart(icon, "BoltMiddle", UDim2.fromOffset(12, 4), UDim2.fromOffset(13, 13), Colors.Gold)
+	middle.Rotation = -20
+end
+
 -- Three rising bars.
 local function statsIcon(icon: Frame)
 	for index, height in { 10, 16, 22 } do
@@ -167,7 +180,9 @@ end
 
 local _, creditsValue = createChip("Frame", "Credits", 1, coinIcon)
 local _, strawValue = createChip("Frame", "Carrying", 2, strawIcon)
-local statsChip, statsLabel, statsStroke = createChip("TextButton", "StatsButton", 3, statsIcon)
+-- Power use against supply over the player's networks (PowerService).
+local _, powerValue = createChip("Frame", "Power", 3, powerIcon)
+local statsChip, statsLabel, statsStroke = createChip("TextButton", "StatsButton", 4, statsIcon)
 local statsButton = statsChip :: TextButton
 statsLabel.Text = "STATS"
 statsLabel.TextSize = 16
@@ -370,6 +385,10 @@ local function refreshStatus()
 	cratesValue.Text = tostring(readNumber("CratesSold"))
 	local straw = readNumber("StrawBundles")
 	strawValue.Text = string.format("%d %s", straw, if straw == 1 then "bundle" else "bundles")
+	local supply = readNumber("PowerSupplyKW")
+	local demand = readNumber("PowerDemandKW")
+	powerValue.Text = string.format("%.0f / %.0f kW", demand, supply)
+	powerValue.TextColor3 = if demand > supply + 0.05 then Colors.Danger else Colors.Text
 
 	local trust = readNumber("Trust")
 	trustValue.Text = string.format("%d / 100", trust)
@@ -392,7 +411,17 @@ local function refreshWind()
 	windValue.TextColor3 = if destination == "Open land" then Colors.Text else Colors.Straw
 end
 
-for _, attribute in { "Credits", "StrawBundles", "Trust", "Exposure", "CratesSold" } do
+for _, attribute in
+	{
+		"Credits",
+		"StrawBundles",
+		"Trust",
+		"Exposure",
+		"CratesSold",
+		"PowerSupplyKW",
+		"PowerDemandKW",
+	}
+do
 	player:GetAttributeChangedSignal(attribute):Connect(refreshStatus)
 end
 world:GetAttributeChangedSignal("WindDirection"):Connect(refreshWind)
@@ -552,10 +581,12 @@ local function refreshSeason()
 			phaseIndex = index
 		end
 	end
+	local year = readWorldNumber("SeasonNumber")
 	phaseCaption.Text = if over
 		then "SEASON OVER"
 		else string.format(
-			"PHASE %d OF %d  |  TIME LEFT",
+			"YEAR %d  |  PHASE %d OF %d",
+			math.max(year, 1),
 			phaseIndex,
 			#SeasonDefinitions.Phases
 		)

@@ -107,6 +107,15 @@ function SmogService:Initialize(
 		schoolSteps[player] = nil
 	end)
 
+	-- Fuel burned in factory generators adds smog too: less than an open field, but not nothing.
+	machineService:OnEvents(function(events)
+		for _, event in events do
+			if event.type == "FuelBurned" and (event.amount or 0) > 0 then
+				smog += event.amount
+			end
+		end
+	end)
+
 	local accumulated = 0
 	RunService.Heartbeat:Connect(function(dt)
 		accumulated += dt
@@ -123,6 +132,7 @@ function SmogService:Initialize(
 			active = nowActive
 			world:SetAttribute("SmogActive", active)
 			machineService:SetGlobalCycleMultiplier(if active then rules.MachineSlowdown else 1)
+			machineService:GetLine():SetSunFactor(if active then rules.SolarDimming else 1)
 			machineService:NotifyAll(
 				if active
 					then "Smog over the district: workers are coughing, so machines and research slow down."

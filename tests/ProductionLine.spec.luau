@@ -563,6 +563,231 @@ do
 	check("the depot holds three links", #line:LinksOf(buyer) == 3)
 end
 
+-- Power: with power switched on, a machine without a network stops and a brownout slows it.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	line:SetPowerEnabled(true)
+	local dryer = line:AddNode("Dryer", "p")
+	table.insert(dryer.input, { id = 1, item = "WetStraw", owner = "p" })
+	line:Step(1)
+	check("an unpowered dryer starts its cycle", dryer.cycling)
+	check("an unpowered dryer asks for power", line:PowerDemand(dryer) == 4)
+	line:Step(20)
+	check(
+		"an unpowered dryer makes nothing",
+		#dryer.output == 0 and dryer.state == "NoPower",
+		dryer.state
+	)
+	line:SetPowerRatio(dryer.id, 0.5)
+	line:Step(7)
+	check("half power is half speed", #dryer.output == 0, tostring(#dryer.output))
+	line:Step(8.2)
+	check("half power finishes in double time", #dryer.output == 1, tostring(#dryer.output))
+	check("a waiting dryer draws nothing", line:PowerDemand(dryer) == 0)
+end
+
+-- Power off (the default) keeps every older line at full speed.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local dryer = line:AddNode("Dryer", "p")
+	table.insert(dryer.input, { id = 1, item = "WetStraw", owner = "p" })
+	line:Step(8)
+	check("power off runs at full speed", #dryer.output == 1)
+end
+
+-- A straw furnace burns dry straw, makes power per cycle and reports each burn for smog.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local intake = line:AddNode("CollectionPoint", "p")
+	local dryer = line:AddNode("Dryer", "p")
+	local furnace = line:AddNode("StrawGenerator", "p")
+	assert(line:Connect(intake.id, dryer.id, 1))
+	local link = line:Connect(dryer.id, furnace.id, 1)
+	check("a belt feeds the furnace", link ~= nil)
+	line:Deposit(intake.id, 3, "p")
+	line:Step(1)
+	check(
+		"an empty furnace is out of fuel",
+		furnace.state == "Starved" and furnace.powerOutput == 0
+	)
+	local burned = 0
+	for _ = 1, 3 do
+		for _, event in line:Step(15) do
+			if event.type == "FuelBurned" then
+				burned += 1
+			end
+		end
+	end
+	check("each bundle burned is reported", burned == 2, tostring(burned))
+	check("the furnace generates while fuelled", furnace.powerOutput == 15)
+end
+
+-- Diesel charges money per cycle; solar follows the sun; the crank runs down.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local diesel = line:AddNode("DieselGenerator", "p")
+	local solar = line:AddNode("SolarPanel", "p")
+	local crank = line:AddNode("HandCrank", "p")
+	local cost = 0
+	for _, event in line:Step(20.5) do
+		if event.type == "OperatingCost" then
+			cost += event.amount
+		end
+	end
+	check("diesel costs money per cycle", cost == 10, tostring(cost))
+	check("diesel generates", diesel.powerOutput == 20)
+	check("solar generates in sun", solar.powerOutput == 3)
+	line:SetSunFactor(0.5)
+	line:Step(0.1)
+	check("smog dims solar", solar.powerOutput == 1.5, tostring(solar.powerOutput))
+	check("an uncranked crank is idle", crank.powerOutput == 0)
+	line:Crank(crank.id, 20)
+	line:Crank(crank.id, 20)
+	line:Crank(crank.id, 40)
+	check("cranking caps at a minute", crank.crankSeconds == 60, tostring(crank.crankSeconds))
+	line:Step(1)
+	check("a cranked crank generates", crank.powerOutput == 8)
+	line:Step(60)
+	check("the crank runs down", crank.powerOutput == 0)
+	line:SetPaused(diesel.id, true)
+	line:Step(0.1)
+	check("a switched off diesel stops", diesel.powerOutput == 0)
+end
+
+-- Fluids: a pump fills a pipe with water, a boiler turns water and dry straw into steam, and a
+-- turbine makes power from the steam.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local pump = line:AddNode("WaterPump", "p")
+	local boiler = line:AddNode("Boiler", "p")
+	local turbine = line:AddNode("SteamTurbine", "p")
+	local dryer = line:AddNode("Dryer", "p")
+	check("the pump has no input port", line:GetPort(pump, "In") == nil)
+	check("the pump outputs fluid", (line:GetPort(pump, "Out") :: any).medium == "Fluid")
+	local wrong = line:Connect(pump.id, dryer.id, 2)
+	check("water cannot run into a dryer", wrong == nil)
+	local water = line:Connect(pump.id, boiler.id, 2, "Out", "Water")
+	check("a pipe joins the pump to the boiler", water ~= nil)
+	local steam = line:Connect(boiler.id, turbine.id, 1)
+	check("a gas pipe joins the boiler to the turbine", steam ~= nil)
+	table.insert(boiler.input, { id = 5000, item = "DryStraw", owner = "p" })
+	line:Step(5)
+	check("pumped water reaches the boiler", countOf(boiler.input, "Water") >= 1 or boiler.cycling)
+	check(
+		"the boiler waits for its second unit of water",
+		not boiler.cycling or boiler.state == "Processing"
+	)
+	local burned = 0
+	local generated = false
+	for _ = 1, 30 do
+		for _, event in line:Step(1) do
+			if event.type == "FuelBurned" and event.nodeId == boiler.id then
+				burned += 1
+			end
+		end
+		if turbine.powerOutput == 50 then
+			generated = true
+		end
+	end
+	check("the boiler reports its smoke", burned == 1, tostring(burned))
+	check("steam drives the turbine", generated)
+	check(
+		"the turbine used the steam",
+		turbine.completedCycles >= 4,
+		tostring(turbine.completedCycles)
+	)
+end
+
+-- Pipes carry fluids closer together than belts carry bundles.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local pump = line:AddNode("WaterPump", "p")
+	local tank = line:AddNode("WaterTank", "p")
+	local link = line:Connect(pump.id, tank.id, 10)
+	check("a pump fills a water tank", link ~= nil)
+	for index = 1, 4 do
+		table.insert(pump.output, { id = 6000 + index, item = "Water", owner = "p" })
+	end
+	line:Step(1)
+	check(
+		"several water units enter a pipe within a second",
+		#(link :: any).items >= 3,
+		tostring(#(link :: any).items)
+	)
+end
+
+-- Biogas: a cattle shed turns straw and water into manure; a digester turns shredded straw,
+-- manure and water into biogas (gas pipe) and digestate (belt); a biogas engine burns the gas.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local shed = line:AddNode("CattleShed", "p")
+	local digester = line:AddNode("Digester", "p")
+	local engine = line:AddNode("GasEngine", "p")
+	local stall = line:AddNode("MarketStall", "p")
+	check(
+		"manure belts from the shed to the digester",
+		line:Connect(shed.id, digester.id, 2, nil, "Manure") ~= nil
+	)
+	check("biogas pipes to the engine", line:Connect(digester.id, engine.id, 2) ~= nil)
+	local digestateLink = line:Connect(digester.id, stall.id, 2, "Digestate")
+	check("digestate belts to a market stall", digestateLink ~= nil)
+	for index = 1, 4 do
+		table.insert(shed.input, { id = 7000 + index, item = "WetStraw", owner = "p" })
+	end
+	for index = 1, 2 do
+		table.insert(shed.input, { id = 7100 + index, item = "Water", owner = "p" })
+	end
+	for index = 1, 2 do
+		table.insert(digester.input, { id = 7200 + index, item = "ShreddedStraw", owner = "p" })
+	end
+	for index = 1, 4 do
+		table.insert(digester.input, { id = 7300 + index, item = "Water", owner = "p" })
+	end
+	local sales, revenue, ran = 0, 0, false
+	for _ = 1, 90 do
+		for _, event in line:Step(1) do
+			if event.type == "Sale" then
+				sales += 1
+				revenue += event.amount
+			end
+		end
+		if engine.powerOutput == 40 then
+			ran = true
+		end
+	end
+	check("the shed made manure", shed.completedCycles >= 1, tostring(shed.completedCycles))
+	check(
+		"the digester ran on shed manure",
+		digester.completedCycles >= 1,
+		tostring(digester.completedCycles)
+	)
+	check("biogas ran the engine", ran)
+	check(
+		"digestate sold at the stall",
+		sales >= 1 and revenue == sales * 60,
+		sales .. " " .. revenue
+	)
+end
+
+-- An unhandled by-product stops the digester, like Industrialist's residue.
+do
+	local line = ProductionLine.new(MachineDefinitions)
+	local digester = line:AddNode("Digester", "p")
+	for index = 1, 4 do
+		table.insert(digester.input, { id = 7400 + index, item = "ShreddedStraw", owner = "p" })
+		table.insert(digester.input, { id = 7500 + index, item = "Manure", owner = "p" })
+	end
+	for index = 1, 8 do
+		table.insert(digester.input, { id = 7600 + index, item = "Water", owner = "p" })
+	end
+	line:Step(200)
+	check(
+		"a full digestate store blocks the digester",
+		digester.state == "Blocked",
+		digester.state .. " " .. digester.reason
+	)
+end
+
 print(string.format("\n%d passed, %d failed", passes, failures))
 if failures > 0 then
 	error("ProductionLine tests failed")

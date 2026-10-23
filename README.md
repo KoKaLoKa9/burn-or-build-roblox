@@ -22,6 +22,17 @@ Week 4 P0 season loop, forecast weather, and the end of season results, built ag
 - Shop and inventory: the old inventory panel is now the shop (M), a scrollable list with an index pane for every item. Bought machines go into your inventory (B, `Owned_<Id>` player attributes); placing uses a machine you own first and only buys one on the spot when you have none, and the Delete tool puts a placed machine back into the inventory. Both panels are a fixed height above the hotbar and scroll.
 - Landscape refresh: tree canopies are rounded leaf masses (rain trees spread into umbrellas, pines into flat cloud layers), the village houses and school are 1.6 and 1.5 times larger, and four kinds of part-built Thai houses (`Houses`: stilt house, concrete house, shophouse, farmhouse, each with its own colours) line the main road, which now runs to the map edge, and five hamlets.
 - Week 6 research and tier 2: build one cooperative office and hire up to three engineers with T there (fee 200 x (1.5 - trust / 100), wage 5 credits per engineer every 30 s). Engineers earn a research point every 15 s. Press E at the office to open the research panel and pick a project: farm machines (the transplanter and combine are now research unlocks), straw baler, market stall, then the pyrolysis kiln and mushroom house. The baler stands beside a paddy and gathers its straw into bales (take them with E); the kiln turns 3 shredded straw into a biochar sack (its syngas leaves by a gold gas port and is flared until gas pipes exist); the mushroom house turns 2 wet straw into a basket of straw mushrooms; the placeable market stall buys pellets (135), biochar (240), and mushrooms (180).
+- Industry update (design in `docs/IndustryExpansion.md`, modelled on Roblox Industrialist):
+  - Power: every factory machine draws power (`PowerKW`). Generators are the hand crank (hold E), solar panels (smog halves them), the straw furnace (burns dry straw), the diesel generator (costs credits, adds smog), the steam turbine and the biogas engine. Batteries store spare power.
+  - Networks: power poles (32 stud reach) link generators, batteries and machines into networks (`Shared/PowerGrid`, `PowerService`). A short network slows every machine on it, and with no network a machine shows "No power". The HUD chip shows use against supply.
+  - Starting kit: new players start with a crank, two solar panels and two poles in their bag.
+  - Pipes: fluid pipes (water) and gas pipes (steam, biogas) are laid with the same drag tool as belts. A cell holds one tile of any kind.
+  - Steam power (research "Steam power"): water pump (works anywhere), water tank, straw boiler (dry straw + water into steam) and steam turbine.
+  - Biogas (research "Biogas", after Steam power): cattle shed (wet straw + water into manure), anaerobic digester (shredded straw + manure + water into biogas and digestate fertiliser) and biogas engine. Digestate sells for 60 at a market stall, and an unhandled digestate output stops the digester.
+  - Generators and the boiler add a little smog per cycle, far less than an open field fire.
+- Endless sandbox: when the 20 minute clock runs out a new year starts (the HUD shows YEAR n) with its phases, burn ban and weather again, instead of the results screen (`GameConfig.Round.Endless`).
+  - Saving: `SaveService` keeps every player attribute (credits, trust, research, inventory), bought plots and the full factory layout (machines, belts and pipes) in a DataStore. It saves every minute, on leaving and on shutdown. Machines come back empty.
+  - Studio limits: DataStores only work in the published experience, so a local Studio play test plays without saving. `DevScenario` (set `DevScenarioConfig.Scenario` to "steam", "save" or "biogas") runs scripted Studio tests, including a JSON save round trip.
 - Week 5 farm machines, the first automation tier for rice: the rice transplanter (250 credits) plants one empty row every 4 s at the usual seed cost, and the combine harvester (400 credits) harvests one ripe row every 5 s for the usual grain. Both stand on the ground beside a paddy (Farm A or a plot you own, within 12 studs of its edge, never on the field or its sign) and work that paddy for their owner through `PaddyField`. Harvested rows still leave straw, and the transplanter waits until it is cleared, so the burn or build choice stays with the player. F pauses them; the Delete tool refunds them like any machine. They use part-built placeholder art (`FarmMachineArt`) until Blender models are imported.
 
 ### Week 4 scope
@@ -258,6 +269,16 @@ Start from a fresh Play session. Times are minutes since the server started. To 
 3. Deposit straw: crates from mill A sell through the middle bay.
 4. Move the shredder's belt from mill A to mill B (mill A's belt to the depot stays in place): crates from mill B sell through the second bay while the first belt is still connected. A fourth belt to the depot finds no free bay.
 5. Place a pyrolysis kiln: it has a gold GAS port on its north side next to the IN and OUT ports. Belts do not attach to the gas port. With no gas pipe, the kiln flares its syngas and keeps making biochar.
+
+### Industry update Studio play test
+
+1. Place the dryer and the starting solar panels beside it: wires join them and the HUD power chip reads use against supply. Feed straw and the dryer works. Take the panels away and it shows "No power".
+2. Place a hand crank and hold E at it: it makes 8 kW for 20 s per turn, up to a minute banked.
+3. Place a power pole within 32 studs of a generator and another machine: both join one network.
+4. Set `DevScenarioConfig.Scenario` to "steam" and press Play: a pump fills the boiler through a fluid pipe and the turbine reaches 50 kW. The results show in a panel on screen.
+5. "biogas": the cattle shed belts manure to the digester, the biogas engine reaches 40 kW and the market stall buys digestate.
+6. "save": after the steam test, the factory is saved to JSON, wiped and rebuilt (all machines and tiles come back), then a new year starts.
+7. Put the scenario back to "none" before committing.
 
 ## Publication
 

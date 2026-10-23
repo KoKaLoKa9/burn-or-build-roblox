@@ -11,11 +11,20 @@
 -- port and fills every Out port, and it starts only when every input is present and every output
 -- has room. An Out port with Vent set releases its units into the air while nothing is connected,
 -- so an unpiped gas never blocks the machine.
+--
+-- Power (industry update): a machine with PowerKW draws that much while it works. Once power is
+-- switched on (SetPowerEnabled), MachineService sets each machine's powerRatio from its network
+-- (Shared/PowerGrid) and a cycle only advances at that share of full speed. Generators make power:
+-- a fuelled one burns InputPerCycle of its fuel per cycle, Fuel "Diesel" charges its operating
+-- cost per cycle, Fuel "Sun" runs whenever it is placed, and Fuel "Crank" runs while someone has
+-- cranked it. Batteries and poles only carry power, so the simulation just reports their state.
 
 local ProductionLine = {}
 ProductionLine.__index = ProductionLine
 
 local BELT_SPACING_SECONDS = 2
+-- Fluids and gases flow as small closely packed units, so a pipe carries far more than a belt.
+local PIPE_SPACING_SECONDS = 0.25
 local MAX_SUBSTEP = 0.1
 
 -- owner is the player whose machine created the unit; sales pay that player.
@@ -80,6 +89,13 @@ export type Node = {
 	-- The links on the primary "Out" and "In" ports, kept for single-port machines.
 	outLink: Link?,
 	inLink: Link?,
+	-- Power: the share of full speed this machine gets (1 while power is off), and for generators
+	-- what they make right now. crankSeconds is the hand crank's remaining charge.
+	powerRatio: number,
+	powerOutput: number,
+	crankSeconds: number,
+	-- Batteries: stored energy in kJ.
+	charge: number,
 }
 
 export type Event = {
@@ -91,31 +107,42 @@ export type Event = {
 	item: string?,
 }
 
-local PORTLESS_KINDS: { [string]: boolean } = { Terminal = true, Farm = true, Office = true }
+local PORTLESS_KINDS: { [string]: boolean } =
+	{ Terminal = true, Farm = true, Office = true, Battery = true, Pole = true }
 
 -- Every port a machine definition has, in order: primary In, primary Out, then ExtraPorts.
 function ProductionLine.PortSpecs(definition: any): { PortSpec }
 	if definition.NoPorts or PORTLESS_KINDS[definition.Kind] then
 		return {}
 	end
-	local isProcessor = definition.Kind == "Processor"
-	local specs: { PortSpec } = {
-		{
+	-- A generator without fuel to deliver (sun, crank, bought diesel) has nothing to connect.
+	if definition.Kind == "Generator" and definition.InputItem == nil then
+		return {}
+	end
+	local isProcessor = definition.Kind == "Processor" or definition.Kind == "Generator"
+	local specs: { PortSpec } = {}
+	-- NoInput: an extractor (the water pump) makes its output from nothing but power.
+	if not definition.NoInput then
+		table.insert(specs, {
 			Name = "In",
 			Direction = "In",
-			Medium = "Item",
+			Medium = definition.InputMedium or "Item",
 			Item = if isProcessor then definition.InputItem else nil,
 			PerCycle = definition.InputPerCycle,
 			Capacity = definition.InputCapacity,
 			Side = "West",
 			Offset = 0,
-		},
-	}
-	if definition.Kind ~= "Sink" and not definition.InputOnly then
+		})
+	end
+	if
+		definition.Kind ~= "Sink"
+		and definition.Kind ~= "Generator"
+		and not definition.InputOnly
+	then
 		table.insert(specs, {
 			Name = "Out",
 			Direction = "Out",
-			Medium = "Item",
+			Medium = definition.OutputMedium or "Item",
 			Item = if isProcessor then definition.OutputItem else nil,
 			PerCycle = definition.OutputPerCycle,
 			Capacity = definition.OutputCapacity,
@@ -159,7 +186,54 @@ function ProductionLine.new(definitions: { [string]: any })
 	-- Weather can stretch a machine type's cycle time (spec 11.3: rain slows drying).
 	self.cycleMultipliers = {} :: { [string]: number }
 	self.globalMultiplier = 1
+	-- Off until MachineService turns the power networks on, so older tests run without power.
+	self.powerEnabled = false
+	-- 0 to 1: how strong the sun is for solar panels (smog dims it).
+	self.sunFactor = 1
 	return self
+end
+
+function ProductionLine:SetPowerEnabled(enabled: boolean)
+	self.powerEnabled = enabled
+	for _, node in self.nodes do
+		node.powerRatio = if enabled and (node.definition.PowerKW or 0) > 0 then 0 else 1
+	end
+end
+
+function ProductionLine:SetSunFactor(factor: number)
+	self.sunFactor = math.clamp(factor, 0, 1)
+end
+
+-- Sets the share of full speed a machine gets from its power network.
+function ProductionLine:SetPowerRatio(nodeId: number, ratio: number)
+	local node = self.nodes[nodeId]
+	if node then
+		node.powerRatio = math.clamp(ratio, 0, 1)
+	end
+end
+
+-- Keeps a hand crank turning for this many more seconds (up to its MaxCrankSeconds).
+function ProductionLine:Crank(nodeId: number, seconds: number): boolean
+	local node: Node? = self.nodes[nodeId]
+	if node == nil or node.definition.Fuel ~= "Crank" then
+		return false
+	end
+	local cap = node.definition.MaxCrankSeconds or seconds
+	node.crankSeconds = math.min(cap, node.crankSeconds + seconds)
+	return true
+end
+
+-- What a machine asks its network for right now, in kW. A processor only draws while a cycle
+-- runs; anything else with PowerKW (the office) draws whenever it is switched on.
+function ProductionLine:PowerDemand(node: Node): number
+	local kw = node.definition.PowerKW or 0
+	if kw <= 0 or node.paused then
+		return 0
+	end
+	if node.kind == "Processor" then
+		return if node.cycling then kw else 0
+	end
+	return kw
 end
 
 -- A multiplier of 1 restores the catalog cycle time. Progress already made is kept.
@@ -285,7 +359,7 @@ local function acceptsType(node: Node, item: string): boolean
 	elseif node.kind == "Sink" and node.definition.Prices then
 		-- A market buys every product it lists a price for.
 		return node.definition.Prices[item] ~= nil
-	elseif node.kind == "Processor" then
+	elseif node.kind == "Processor" or node.kind == "Generator" then
 		return processorAccepts(node, item)
 	end
 	return node.definition.AcceptsItem == item
@@ -337,7 +411,7 @@ local function canAccept(node: Node, port: Port, item: string): boolean
 	if not portAccepts(node, port, item) then
 		return false
 	end
-	if node.kind == "Processor" then
+	if node.kind == "Processor" or node.kind == "Generator" then
 		return countItem(node.input, port.item) < port.capacity
 	elseif node.kind == "Source" then
 		return #node.output < node.definition.OutputCapacity
@@ -380,6 +454,10 @@ function ProductionLine:AddNode(definitionId: string, owner: any?): Node
 		filter = nil,
 		outLink = nil,
 		inLink = nil,
+		powerRatio = if self.powerEnabled and (definition.PowerKW or 0) > 0 then 0 else 1,
+		powerOutput = 0,
+		crankSeconds = 0,
+		charge = 0,
 	}
 	self.nextNodeId += 1
 	self.nodes[node.id] = node
@@ -469,7 +547,10 @@ function ProductionLine:Connect(
 	if #outPorts == 0 then
 		return nil, from.definition.DisplayName .. " has no output port."
 	end
-	local hasInput = to.kind == "Processor" or to.kind == "Sink" or to.kind == "Storage"
+	local hasInput = to.kind == "Processor"
+		or to.kind == "Generator"
+		or to.kind == "Sink"
+		or to.kind == "Storage"
 	if not hasInput and not (to.kind == "Source" and from.kind == "Source") then
 		return nil, to.definition.DisplayName .. " has no input for that line."
 	end
@@ -614,17 +695,22 @@ function ProductionLine:_deliver(node: Node, unit: Unit)
 	end
 end
 
+local function spacingOf(link: Link): number
+	return if link.fromPort.medium == "Item" then BELT_SPACING_SECONDS else PIPE_SPACING_SECONDS
+end
+
 local function canEnter(link: Link): boolean
 	local last = link.items[#link.items]
-	return last == nil or last.elapsed >= BELT_SPACING_SECONDS
+	return last == nil or last.elapsed >= spacingOf(link)
 end
 
 function ProductionLine:_stepLink(link: Link, dt: number)
 	local limit = link.travelSeconds
+	local spacing = spacingOf(link)
 	for _, entry in link.items do
 		entry.elapsed = math.min(entry.elapsed + dt, limit)
 		-- Items keep order and queue behind a stopped head (spec 4.5).
-		limit = math.max(0, entry.elapsed - BELT_SPACING_SECONDS)
+		limit = math.max(0, entry.elapsed - spacing)
 	end
 
 	local head = link.items[1]
@@ -733,7 +819,7 @@ function ProductionLine:_finishCycle(node: Node)
 						owner = node.owner,
 						unitId = unit.id,
 						item = item,
-					})
+					} :: Event)
 				else
 					table.insert(node.held, unit)
 				end
@@ -746,14 +832,24 @@ function ProductionLine:_finishCycle(node: Node)
 		nodeId = node.id,
 		owner = node.owner,
 		item = definition.OutputItem,
-	})
+	} :: Event)
 	if definition.OperatingCostPerCycle then
 		self:_emit({
 			type = "OperatingCost",
 			nodeId = node.id,
 			owner = node.owner,
 			amount = definition.OperatingCostPerCycle,
-		})
+		} :: Event)
+	end
+	if definition.SmogPerCycle then
+		-- A fuel-burning processor (the boiler) adds its smoke like a generator does.
+		self:_emit({
+			type = "FuelBurned",
+			nodeId = node.id,
+			owner = node.owner,
+			item = definition.InputItem,
+			amount = definition.SmogPerCycle,
+		} :: Event)
 	end
 	flushHeld(node)
 end
@@ -769,12 +865,23 @@ function ProductionLine:_stepProcessor(node: Node, dt: number)
 	flushHeld(node)
 
 	if node.cycling then
-		node.progress += dt
+		local ratio = if self.powerEnabled then node.powerRatio else 1
+		node.progress += dt * ratio
+		if ratio <= 0 then
+			node.state, node.reason = "NoPower", "No power: connect a generator or power pole"
+			return
+		end
 		if node.progress >= cycleSeconds then
 			self:_finishCycle(node)
 		else
 			node.state = "Processing"
-			node.reason = string.format("%.0fs remaining", cycleSeconds - node.progress)
+			node.reason = if ratio < 0.999
+				then string.format(
+					"Low power %d%%, %.0fs left",
+					math.floor(ratio * 100),
+					(cycleSeconds - node.progress) / ratio
+				)
+				else string.format("%.0fs remaining", cycleSeconds - node.progress)
 			return
 		end
 	end
@@ -871,6 +978,77 @@ function ProductionLine:_stepSource(node: Node)
 	end
 end
 
+-- Generators: a fuelled one burns its fuel per cycle and makes power while that cycle runs.
+function ProductionLine:_stepGenerator(node: Node, dt: number)
+	local definition = node.definition
+	local fuel = definition.Fuel
+	node.powerOutput = 0
+	if node.paused then
+		node.state, node.reason = "Paused", "Switched off"
+		return
+	end
+	if fuel == "Sun" then
+		node.powerOutput = definition.PowerOutputKW * self.sunFactor
+		node.state = "Generating"
+		node.reason = if self.sunFactor < 0.999
+			then string.format("Smog dims the sun: %.1f kW", node.powerOutput)
+			else string.format("%.1f kW", node.powerOutput)
+		return
+	elseif fuel == "Crank" then
+		if node.crankSeconds > 0 then
+			node.crankSeconds = math.max(0, node.crankSeconds - dt)
+			node.powerOutput = definition.PowerOutputKW
+			node.state = "Generating"
+			node.reason = string.format("%.0f kW, %.0fs left", node.powerOutput, node.crankSeconds)
+		else
+			node.state, node.reason = "Idle", "Hold E to crank"
+		end
+		return
+	end
+
+	if node.cycling then
+		node.progress += dt
+		if node.progress >= definition.CycleSeconds then
+			node.cycling = false
+			node.progress = 0
+			table.clear(node.reserved)
+			node.completedCycles += 1
+			self:_emit({
+				type = "FuelBurned",
+				nodeId = node.id,
+				owner = node.owner,
+				item = definition.InputItem,
+				-- Smog this burn adds to the district (SmogService).
+				amount = definition.SmogPerCycle or 0,
+			})
+			if definition.OperatingCostPerCycle then
+				self:_emit({
+					type = "OperatingCost",
+					nodeId = node.id,
+					owner = node.owner,
+					amount = definition.OperatingCostPerCycle,
+				})
+			end
+		end
+	end
+	if not node.cycling then
+		local missing = if definition.InputItem then starvedReason(node) else nil
+		if missing then
+			node.state, node.reason = "Starved", "Out of fuel: " .. string.lower(missing)
+			return
+		end
+		for _, port in portsOf(node, "In") do
+			for _ = 1, port.perCycle do
+				table.insert(node.reserved, takeItem(node.input, port.item) :: Unit)
+			end
+		end
+		node.cycling = true
+	end
+	node.powerOutput = definition.PowerOutputKW
+	node.state = "Generating"
+	node.reason = string.format("%.0f kW", definition.PowerOutputKW)
+end
+
 function ProductionLine:_substep(dt: number)
 	for _, link in self.links do
 		self:_stepLink(link, dt)
@@ -878,6 +1056,13 @@ function ProductionLine:_substep(dt: number)
 	for _, node in self.nodes do
 		if node.kind == "Processor" then
 			self:_stepProcessor(node, dt)
+		elseif node.kind == "Generator" then
+			self:_stepGenerator(node, dt)
+		elseif node.kind == "Battery" then
+			local capacity = node.definition.CapacityKJ or 1
+			node.state = "Storing"
+			node.reason =
+				string.format("%d%% charged", math.floor(node.charge / capacity * 100 + 0.5))
 		elseif node.kind == "Source" then
 			self:_stepSource(node)
 		elseif node.kind == "Storage" then

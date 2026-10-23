@@ -17,6 +17,10 @@ local DEFAULT_ATTRIBUTES: { [string]: any } = {
 	CratesSold = 0,
 	-- Spec 13.3: the tutorial ends at the first sale and normal refunds begin.
 	TutorialComplete = false,
+	-- Starting power kit, like Industrialist's crank and panels: enough for a slow first line.
+	Owned_HandCrank = 1,
+	Owned_SolarPanel = 2,
+	Owned_PowerPole = 2,
 }
 
 -- Attributes are untyped in strict mode, so numeric reads go through one checked helper.

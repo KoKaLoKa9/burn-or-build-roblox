@@ -35,6 +35,33 @@ local function part(
 	return item
 end
 
+-- Hands a lot to a player without payment, for a saved purchase coming back (SaveService).
+local grants: { [number]: (Player) -> () } = {}
+local plotFolder: Folder? = nil
+
+function PlotService:Grant(player: Player, index: number)
+	local grant = grants[index]
+	if grant then
+		grant(player)
+	end
+end
+
+-- The lot numbers this player owns.
+function PlotService:Owned(player: Player): { number }
+	local list = {}
+	local folder = plotFolder
+	if folder == nil then
+		return list
+	end
+	for _, model in folder:GetChildren() do
+		local index = tonumber(string.match(model.Name, "^Plot_(%d+)$"))
+		if index and model:GetAttribute("OwnerUserId") == player.UserId then
+			table.insert(list, index)
+		end
+	end
+	return list
+end
+
 function PlotService:Initialize(
 	world: Model,
 	playerState: any,
@@ -57,6 +84,7 @@ function PlotService:Initialize(
 			machineService:Notify(player, message)
 		end
 	end
+	plotFolder = folder
 
 	for index, lot in config.Lots do
 		local model = Instance.new("Model")
@@ -181,6 +209,15 @@ function PlotService:Initialize(
 				gameConfig = gameConfig,
 				notify = notify,
 			})
+		end
+
+		grants[index] = function(player: Player)
+			if model:GetAttribute("OwnerUserId") ~= 0 then
+				return
+			end
+			model:SetAttribute("OwnerUserId", player.UserId)
+			buyPrompt:Destroy()
+			build(player)
 		end
 
 		buyPrompt.Triggered:Connect(function(player)

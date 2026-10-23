@@ -3,6 +3,9 @@
 local GameConfig = {
 	Round = {
 		DurationSeconds = 20 * 60,
+		-- Endless sandbox (industry update): when a season's clock runs out a new year starts
+		-- instead of the results screen, and the factory is saved between visits.
+		Endless = true,
 	},
 	Player = {
 		-- Enough for a dryer and shredder; the pellet mill needs early income (grain), which is
@@ -69,6 +72,8 @@ local GameConfig = {
 		-- While the air is smoggy, sick workers slow every machine and research.
 		MachineSlowdown = 1.25,
 		ResearchRate = 0.6,
+		-- Smoggy skies dim solar panels to this share of their output.
+		SolarDimming = 0.5,
 		-- Each time a player's exposure passes another SchoolStep points, the school closes for
 		-- a smog day and farmers lose trust in the cooperative.
 		SchoolStep = 40,

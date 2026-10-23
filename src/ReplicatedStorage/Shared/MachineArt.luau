@@ -8,6 +8,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local FarmMachineArt = require(script.Parent:WaitForChild("FarmMachineArt"))
+local PowerArt = require(script.Parent:WaitForChild("PowerArt"))
 local MachineArtPalette = require(script.Parent:WaitForChild("MachineArtPalette"))
 
 local MachineArt = {}
@@ -31,7 +32,9 @@ local function findSource(definitionId: string): Model?
 end
 
 function MachineArt.Has(definitionId: string): boolean
-	return findSource(definitionId) ~= nil or FarmMachineArt.Has(definitionId)
+	return findSource(definitionId) ~= nil
+		or FarmMachineArt.Has(definitionId)
+		or PowerArt.Has(definitionId)
 end
 
 -- Returns a painted, anchored, non-colliding copy whose pivot is the bottom center of the model,
@@ -39,7 +42,7 @@ end
 function MachineArt.Build(definitionId: string): Model?
 	local source = findSource(definitionId)
 	if source == nil then
-		return FarmMachineArt.Build(definitionId)
+		return FarmMachineArt.Build(definitionId) or PowerArt.Build(definitionId)
 	end
 
 	local art = source:Clone()
