@@ -27,6 +27,7 @@ local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
 local Services = ServerScriptService:WaitForChild("Server"):WaitForChild("Services")
 local MachineService = require(Services:WaitForChild("MachineService")) :: any
 local SaveService = require(Services:WaitForChild("SaveService")) :: any
+local PowerService = require(Services:WaitForChild("PowerService")) :: any
 
 local player = Players:GetPlayers()[1] or Players.PlayerAdded:Wait()
 
@@ -145,6 +146,20 @@ local function route(
 	return tiles
 end
 
+-- Strings a wire with the wrench rules: a pole coil to a machine or to another pole's coil.
+local function wire(poleQuery: string, coil: number, otherQuery: string, otherCoil: number?)
+	local pole = findModel(poleQuery) :: Model
+	local other = findModel(otherQuery) :: Model
+	local ok, message = PowerService:Connect(
+		player,
+		{ id = pole:GetAttribute("MachineId"), coil = coil },
+		{ id = other:GetAttribute("MachineId"), coil = otherCoil }
+	)
+	if not ok then
+		print("[DevScenario] wire failed", poleQuery, otherQuery, message)
+	end
+end
+
 local function machine(id: string, x: number, z: number)
 	return { id = id, x = x, y = 1, z = z, rot = 0 }
 end
@@ -206,6 +221,11 @@ local function buildSteam()
 		table.insert(pipes, tile)
 	end
 	MachineService:ImportLayout(player, { machines = {}, tiles = pipes })
+	wire("PowerPole@-20,92", 1, "SolarPanel")
+	wire("PowerPole@-20,92", 1, "WaterPump")
+	wire("PowerPole@-20,92", 1, "Boiler")
+	wire("PowerPole@-20,92", 1, "PowerPole@8,100", 1)
+	wire("PowerPole@8,100", 1, "SteamTurbine")
 	feed("Boiler", "DryStraw", 3)
 	say(
 		"built",
@@ -255,6 +275,14 @@ local function buildBiogas()
 	add(route("Gas", "Digester", "OutputPort", "GasEngine", "InputPort"))
 	add(route("Item", "Digester", "OutputPortDigestate", "MarketStall", "InputPort"))
 	MachineService:ImportLayout(player, { machines = {}, tiles = tiles })
+	wire("PowerPole@-30,135", 1, "WaterPump@-60,135")
+	wire("PowerPole@-30,135", 1, "WaterPump@-20,128")
+	wire("PowerPole@-30,135", 1, "CattleShed")
+	wire("PowerPole@-30,135", 1, "PowerPole@-6,120", 1)
+	wire("PowerPole@-6,120", 1, "DieselGenerator")
+	wire("PowerPole@-6,120", 1, "Digester")
+	wire("PowerPole@-6,120", 1, "PowerPole@24,128", 1)
+	wire("PowerPole@24,128", 1, "GasEngine")
 	say("built", #MachineService:ExportLayout(player).machines, "machines and", #tiles, "tiles")
 	-- Stand south of the plant looking north, so the camera frames it.
 	local character = player.Character
@@ -284,6 +312,7 @@ if scenario == "save" then
 	local json = HttpService:JSONEncode(SaveService:Snapshot(player))
 	local data = HttpService:JSONDecode(json)
 	local before = #data.layout.machines
+	local wiresBefore = #data.wires
 	MachineService:ClearPlayerForTest(player)
 	local wiped = #MachineService:ExportLayout(player).machines
 	player:SetAttribute("Credits", 1)
@@ -291,13 +320,15 @@ if scenario == "save" then
 	local after = MachineService:ExportLayout(player)
 	say(
 		string.format(
-			"save round trip: %d bytes, machines %d, after wipe %d, rebuilt %d, tiles %d of %d, credits %s",
+			"save round trip: %d bytes, machines %d, after wipe %d, rebuilt %d, tiles %d of %d, wires %d of %d, credits %s",
 			#json,
 			before,
 			wiped,
 			#after.machines,
 			#after.tiles,
 			#data.layout.tiles,
+			player:GetAttribute("Wires") or 0,
+			wiresBefore,
 			tostring(player:GetAttribute("Credits"))
 		)
 	)
@@ -318,3 +349,7 @@ if scenario == "save" then
 	)
 end
 say("done")
+-- Out of the way once read, so the game UI can be checked too.
+task.delay(12, function()
+	panel:Destroy()
+end)

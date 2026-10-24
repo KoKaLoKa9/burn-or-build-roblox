@@ -20,11 +20,13 @@ local AUTOSAVE_SECONDS = 60
 local SKIP_ATTRIBUTES: { [string]: boolean } = {
 	PowerSupplyKW = true,
 	PowerDemandKW = true,
+	Wires = true,
 }
 
 local store: DataStore? = nil
 local machineService: any
 local plotService: any
+local powerService: any
 local world: Model
 -- Players whose save loaded cleanly; only these are ever written back.
 local loaded: { [Player]: boolean } = {}
@@ -44,12 +46,17 @@ function SaveService:Snapshot(player: Player): any
 			attributes[name] = value
 		end
 	end
+	local layout = machineService:ExportLayout(player)
+	-- Wires name their machines by place in the saved list; live ids mean nothing next visit.
+	local wires = powerService:ExportWires(player, layout.nodeIds)
+	layout.nodeIds = nil
 	return {
 		version = 1,
 		savedAt = os.time(),
 		attributes = attributes,
 		plots = plotService:Owned(player),
-		layout = machineService:ExportLayout(player),
+		layout = layout,
+		wires = wires,
 		year = world:GetAttribute("SeasonNumber"),
 	}
 end
@@ -81,7 +88,8 @@ function SaveService:Apply(player: Player, data: any)
 		world:SetAttribute("SeasonNumber", year)
 	end
 	-- After attributes, so research unlocks and the finished tutorial are in place first.
-	machineService:ImportLayout(player, data.layout)
+	local newIds = machineService:ImportLayout(player, data.layout)
+	powerService:ImportWires(player, data.wires, newIds)
 end
 
 local function load(player: Player)
@@ -109,10 +117,11 @@ local function load(player: Player)
 	end
 end
 
-function SaveService:Initialize(worldModel: Model, machines: any, plots: any)
+function SaveService:Initialize(worldModel: Model, machines: any, plots: any, power: any)
 	world = worldModel
 	machineService = machines
 	plotService = plots
+	powerService = power
 	local ok, result = pcall(function()
 		return DataStoreService:GetDataStore(STORE_NAME)
 	end)

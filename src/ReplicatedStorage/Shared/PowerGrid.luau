@@ -1,101 +1,84 @@
 --!strict
 
 -- Power networks (industry update, docs/IndustryExpansion.md section 2.2). Plain data only, so the
--- Lune tests can require it and the client can show reach while placing.
+-- Lune tests can require it.
 --
--- Hubs (power poles, generators, batteries) have a Reach in studs. Two hubs join when their centres
--- are within the larger of their reaches. A machine joins a hub when the closest point of its
--- footprint is within that hub's reach. Every connected group is one network: its generators share
--- their power with every machine on it, and its batteries soak up any surplus and cover shortfalls.
+-- Like Industrialist, power only flows along wires the player strings with the wrench. A wire joins
+-- two ends: a coil on a power pole ("p<id>:<coil>") and a machine ("m<id>"), or two pole coils. The
+-- two coils on one pole are separate junctions. Every group of ends joined by wires is one network:
+-- its generators share their power with every machine on it, and its batteries soak up any surplus
+-- and cover shortfalls. A machine with no wire is a network of its own.
 
 local PowerGrid = {}
 
-export type Rect = { minX: number, maxX: number, minZ: number, maxZ: number }
+export type End = { id: number, coil: number? }
 
-export type Element = {
-	id: number,
-	x: number,
-	z: number,
-	rect: Rect,
-	-- Hubs only: how far they reach to poles, generators, batteries and machines.
-	reach: number?,
-}
-
-export type Edge = { a: number, b: number }
-
-local function rectDistance(rect: Rect, x: number, z: number): number
-	local dx = math.max(rect.minX - x, 0, x - rect.maxX)
-	local dz = math.max(rect.minZ - z, 0, z - rect.maxZ)
-	return math.sqrt(dx * dx + dz * dz)
+function PowerGrid.Key(point: End): string
+	return if point.coil then "p" .. point.id .. ":" .. point.coil else "m" .. point.id
 end
-PowerGrid.RectDistance = rectDistance
 
--- Groups elements into networks. Returns the network number of every element id (elements with no
--- connection still get their own number) and the edges, for drawing wires.
-function PowerGrid.Networks(elements: { Element }): ({ [number]: number }, { Edge })
-	local parent: { [number]: number } = {}
-	local function find(id: number): number
-		local root = id
+-- Groups ends into networks. Returns each key's network: the smallest key in its group, so the
+-- result does not depend on the order of wires.
+function PowerGrid.Networks(keys: { string }, wires: { { string } }): { [string]: string }
+	local parent: { [string]: string } = {}
+	local function find(key: string): string
+		local root = key
 		while parent[root] ~= root do
 			root = parent[root]
 		end
-		while parent[id] ~= root do
-			local nextId = parent[id]
-			parent[id] = root
-			id = nextId
+		while parent[key] ~= root do
+			local nextKey = parent[key]
+			parent[key] = root
+			key = nextKey
 		end
 		return root
 	end
-	local function union(a: number, b: number)
-		local ra, rb = find(a), find(b)
-		if ra ~= rb then
-			parent[math.max(ra, rb)] = math.min(ra, rb)
-		end
+	for _, key in keys do
+		parent[key] = key
 	end
-
-	local hubs: { Element } = {}
-	for _, element in elements do
-		parent[element.id] = element.id
-		if element.reach and element.reach > 0 then
-			table.insert(hubs, element)
-		end
-	end
-
-	local edges: { Edge } = {}
-	for i, hub in hubs do
-		for j = i + 1, #hubs do
-			local other = hubs[j]
-			local reach = math.max(hub.reach :: number, other.reach :: number)
-			local dx, dz = hub.x - other.x, hub.z - other.z
-			if dx * dx + dz * dz <= reach * reach then
-				union(hub.id, other.id)
-				table.insert(edges, { a = hub.id, b = other.id })
-			end
-		end
-	end
-	for _, element in elements do
-		if element.reach == nil or element.reach <= 0 then
-			-- A machine wires to its nearest hub in reach only, so the drawing stays tidy.
-			local best: Element? = nil
-			local bestDistance = math.huge
-			for _, hub in hubs do
-				local distance = rectDistance(element.rect, hub.x, hub.z)
-				if distance <= (hub.reach :: number) and distance < bestDistance then
-					best, bestDistance = hub, distance
+	for _, wire in wires do
+		local a, b = wire[1], wire[2]
+		if parent[a] and parent[b] then
+			local ra, rb = find(a), find(b)
+			if ra ~= rb then
+				if ra < rb then
+					parent[rb] = ra
+				else
+					parent[ra] = rb
 				end
 			end
-			if best then
-				union(element.id, best.id)
-				table.insert(edges, { a = best.id, b = element.id })
-			end
 		end
 	end
-
-	local networks: { [number]: number } = {}
-	for _, element in elements do
-		networks[element.id] = find(element.id)
+	local networks: { [string]: string } = {}
+	for _, key in keys do
+		networks[key] = find(key)
 	end
-	return networks, edges
+	return networks
+end
+
+-- Why a wire may not be strung, or nil when it may. `aPole` and `bPole` say whether each end is a
+-- pole coil, `reach` is the longest wire the poles involved allow, `length` the wire's length.
+function PowerGrid.WireProblem(
+	a: End,
+	b: End,
+	aPole: boolean,
+	bPole: boolean,
+	length: number,
+	reach: number
+): string?
+	if PowerGrid.Key(a) == PowerGrid.Key(b) then
+		return "Pick two different ends."
+	end
+	if a.id == b.id and not (aPole and bPole) then
+		return "Pick two different ends."
+	end
+	if not aPole and not bPole then
+		return "Wires run through a power pole: click a pole coil first."
+	end
+	if length > reach then
+		return string.format("Too far: %d studs, a wire reaches %d.", math.floor(length), reach)
+	end
+	return nil
 end
 
 export type Battery = { charge: number, capacity: number, rate: number }

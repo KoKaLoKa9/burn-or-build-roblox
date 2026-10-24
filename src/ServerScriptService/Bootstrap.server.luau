@@ -73,7 +73,7 @@ WorldArtService:Initialize(world)
 -- Runs last so it restyles every label the other services created.
 WorldLabelService:Initialize(world)
 -- After every service exists, so a saved factory, plots and research can be restored.
-SaveService:Initialize(world, MachineService, PlotService)
+SaveService:Initialize(world, MachineService, PlotService, PowerService)
 
 -- Studio play tests drive the live line from the command bar, which runs in its own environment
 -- and cannot reach these module instances. ServerStorage.DebugBridge answers a few fixed actions:

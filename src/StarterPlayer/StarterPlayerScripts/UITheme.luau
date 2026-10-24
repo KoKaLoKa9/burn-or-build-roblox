@@ -1,31 +1,33 @@
 --!strict
 
 -- One look for every Burn or Build screen: palette, type, and small constructors.
--- Dark glass panels, a thin light outline, and color only as an accent next to words and numbers
--- (spec 14.3: color never carries meaning alone).
+-- Modelled on Industrialist's interface: charcoal panels with a thin light edge, light grey serif
+-- type, green for money and confirm, red for close and warnings. Color stays an accent next to
+-- words and numbers (spec 14.3: color never carries meaning alone).
 
 local UITheme = {}
 
 UITheme.Colors = {
-	Panel = Color3.fromRGB(13, 20, 19),
-	Raised = Color3.fromRGB(26, 37, 35),
-	Hover = Color3.fromRGB(36, 50, 47),
-	Outline = Color3.fromRGB(255, 255, 255),
-	Text = Color3.fromRGB(240, 238, 228),
-	Muted = Color3.fromRGB(146, 164, 157),
-	Teal = Color3.fromRGB(64, 200, 176),
-	Gold = Color3.fromRGB(246, 190, 72),
+	Panel = Color3.fromRGB(26, 26, 26),
+	Raised = Color3.fromRGB(58, 58, 58),
+	Hover = Color3.fromRGB(84, 84, 84),
+	Outline = Color3.fromRGB(235, 235, 235),
+	Text = Color3.fromRGB(232, 232, 232),
+	Muted = Color3.fromRGB(160, 160, 160),
+	-- Accents: Teal is the neutral highlight, Good the green of money and Start Placing.
+	Teal = Color3.fromRGB(150, 200, 225),
+	Gold = Color3.fromRGB(240, 196, 84),
 	Straw = Color3.fromRGB(226, 185, 83),
-	Danger = Color3.fromRGB(240, 98, 70),
-	Good = Color3.fromRGB(104, 216, 142),
-	Track = Color3.fromRGB(42, 56, 52),
+	Danger = Color3.fromRGB(205, 52, 44),
+	Good = Color3.fromRGB(64, 196, 64),
+	Track = Color3.fromRGB(70, 70, 70),
 }
 
-local FAMILY = "rbxasset://fonts/families/BuilderSans.json"
+local FAMILY = "rbxasset://fonts/families/Merriweather.json"
 UITheme.Fonts = {
-	Regular = Font.new(FAMILY, Enum.FontWeight.Medium),
+	Regular = Font.new(FAMILY, Enum.FontWeight.Regular),
 	Bold = Font.new(FAMILY, Enum.FontWeight.Bold),
-	Heavy = Font.new(FAMILY, Enum.FontWeight.ExtraBold),
+	Heavy = Font.new(FAMILY, Enum.FontWeight.Heavy),
 }
 
 function UITheme.corner(parent: Instance, radius: number)
@@ -69,18 +71,18 @@ function UITheme.list(parent: Instance, gap: number, horizontal: boolean?): UILi
 	return layout
 end
 
--- A rounded dark glass card that grows with its content.
+-- A rounded charcoal card with a light edge that grows with its content.
 function UITheme.card(name: string, parent: Instance, width: number): Frame
 	local card = Instance.new("Frame")
 	card.Name = name
 	card.Size = UDim2.fromOffset(width, 0)
 	card.AutomaticSize = Enum.AutomaticSize.Y
 	card.BackgroundColor3 = UITheme.Colors.Panel
-	card.BackgroundTransparency = 0.04
+	card.BackgroundTransparency = 0.06
 	card.BorderSizePixel = 0
 	card.Parent = parent
-	UITheme.corner(card, 14)
-	UITheme.outline(card)
+	UITheme.corner(card, 12)
+	UITheme.outline(card, UITheme.Colors.Outline, 0.75)
 	return card
 end
 

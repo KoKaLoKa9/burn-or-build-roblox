@@ -2,12 +2,11 @@
 
 -- Free placement build mode (spec section 3). The ghost preview is local; the server re-validates
 -- every machine and belt tile, so this script never decides credits or machine state.
--- UI: a bottom hotbar of machine slots and transport slots with live 3D previews, a Grid tool,
--- context key hints, a tooltip, and short toasts for server results.
+-- UI: a bottom tool bar (1 build menu, 2 wrench, 3 delete, 4 grid), the build menu, context key
+-- hints, and short toasts for server results.
 -- Belts are laid tile by tile: click to place one, or hold and drag to lay a line that turns
 -- wherever the drag turns. Machine IN/OUT ports only show while building, so the floor stays calm.
 
-local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -46,37 +45,39 @@ local floor = factory:WaitForChild("FactoryFloor") :: BasePart
 local production = world:WaitForChild("Production")
 local conveyorFolder = production:WaitForChild("Conveyors")
 
-local SLOT_KEYS = {
-	Enum.KeyCode.One,
-	Enum.KeyCode.Two,
-	Enum.KeyCode.Three,
-	Enum.KeyCode.Four,
-	Enum.KeyCode.Five,
-	Enum.KeyCode.Six,
-	Enum.KeyCode.Seven,
-	Enum.KeyCode.Eight,
-	Enum.KeyCode.Nine,
-}
--- Hotbar order: machines first, then transport. Each slot takes the next number key.
-local CATALOG = { "Dryer", "Shredder", "PelletMill", "CoveredStorage", "TruckTerminal" }
--- Farm machines stand beside a paddy (Farm A or a bought plot) instead of on the factory floor.
-local FARM_CATALOG = { "Transplanter", "Combine", "Baler" }
--- Week 6: the office runs research; tier 2 machines unlock through it.
-local OFFICE_CATALOG = { "CooperativeOffice" }
-local TIER2_CATALOG =
-	{ "MarketStall", "PyrolysisKiln", "MushroomHouse", "CattleShed", "Digester", "GasEngine" }
--- Industry update: every factory machine needs power from these.
-local POWER_CATALOG = {
-	"HandCrank",
-	"SolarPanel",
-	"PowerPole",
-	"Battery",
-	"StrawGenerator",
-	"DieselGenerator",
-	"WaterPump",
-	"WaterTank",
-	"Boiler",
-	"SteamTurbine",
+-- Everything the build menu offers, in menu order: id, menu category, and tier (the I to IV tabs).
+-- Tier I is the opening factory and its power; II farm machines and tier 2 products; III steam;
+-- IV biogas. Research still gates what can be placed inside a tier.
+type CatalogEntry = { id: string, category: string, tier: number, transport: boolean? }
+local BUILD_CATALOG: { CatalogEntry } = {
+	{ id = "HandCrank", category = "Power", tier = 1 },
+	{ id = "SolarPanel", category = "Power", tier = 1 },
+	{ id = "PowerPole", category = "Power", tier = 1 },
+	{ id = "Battery", category = "Power", tier = 1 },
+	{ id = "StrawGenerator", category = "Power", tier = 1 },
+	{ id = "DieselGenerator", category = "Power", tier = 1 },
+	{ id = "WaterPump", category = "Extractors", tier = 1 },
+	{ id = "Dryer", category = "Factories", tier = 1 },
+	{ id = "Shredder", category = "Factories", tier = 1 },
+	{ id = "PelletMill", category = "Factories", tier = 1 },
+	{ id = "Item", category = "Logistics", tier = 1, transport = true },
+	{ id = "Fluid", category = "Logistics", tier = 1, transport = true },
+	{ id = "Gas", category = "Logistics", tier = 1, transport = true },
+	{ id = "CoveredStorage", category = "Logistics", tier = 1 },
+	{ id = "WaterTank", category = "Logistics", tier = 1 },
+	{ id = "TruckTerminal", category = "Logistics", tier = 1 },
+	{ id = "CooperativeOffice", category = "Research", tier = 1 },
+	{ id = "Transplanter", category = "Farm", tier = 2 },
+	{ id = "Combine", category = "Farm", tier = 2 },
+	{ id = "Baler", category = "Farm", tier = 2 },
+	{ id = "PyrolysisKiln", category = "Factories", tier = 2 },
+	{ id = "MushroomHouse", category = "Factories", tier = 2 },
+	{ id = "MarketStall", category = "Selling", tier = 2 },
+	{ id = "Boiler", category = "Power", tier = 3 },
+	{ id = "SteamTurbine", category = "Power", tier = 3 },
+	{ id = "CattleShed", category = "Farm", tier = 4 },
+	{ id = "Digester", category = "Factories", tier = 4 },
+	{ id = "GasEngine", category = "Power", tier = 4 },
 }
 
 type ItemInfo = { recipe: string, detail: string }
@@ -443,111 +444,33 @@ UITheme.padding(hotbar, 10, 10)
 local hotbarLayout = UITheme.list(hotbar, 8, true)
 hotbarLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 
--- Everything the player can put on the hotbar. Research items are shown but locked until the
--- tier system arrives.
+-- Everything the player can build or put on the hotbar.
 type Item = {
 	key: string,
 	kind: string,
 	id: string,
 	name: string,
 	category: string,
+	tier: number?,
 	blurb: string?,
 }
 local ITEMS: { Item } = {}
 local ITEM_BY_KEY: { [string]: Item } = {}
-local function addItem(item: Item)
+for _, entry in BUILD_CATALOG do
+	local kind = if entry.transport then "Transport" else "Machine"
+	local item: Item = {
+		key = kind .. ":" .. entry.id,
+		kind = kind,
+		id = entry.id,
+		name = if entry.transport
+			then PipeDefinitions.Types[entry.id].DisplayName
+			else MachineDefinitions[entry.id].DisplayName,
+		category = entry.category,
+		tier = entry.tier,
+	}
 	table.insert(ITEMS, item)
 	ITEM_BY_KEY[item.key] = item
 end
-for _, definitionId in CATALOG do
-	addItem({
-		key = "Machine:" .. definitionId,
-		kind = "Machine",
-		id = definitionId,
-		name = MachineDefinitions[definitionId].DisplayName,
-		category = "Machines",
-	})
-end
-for _, definitionId in OFFICE_CATALOG do
-	addItem({
-		key = "Machine:" .. definitionId,
-		kind = "Machine",
-		id = definitionId,
-		name = MachineDefinitions[definitionId].DisplayName,
-		category = "Machines",
-	})
-end
-for _, definitionId in POWER_CATALOG do
-	addItem({
-		key = "Machine:" .. definitionId,
-		kind = "Machine",
-		id = definitionId,
-		name = MachineDefinitions[definitionId].DisplayName,
-		category = "Power",
-	})
-end
-for _, definitionId in FARM_CATALOG do
-	addItem({
-		key = "Machine:" .. definitionId,
-		kind = "Machine",
-		id = definitionId,
-		name = MachineDefinitions[definitionId].DisplayName,
-		category = "Farm",
-	})
-end
-for _, definitionId in TIER2_CATALOG do
-	addItem({
-		key = "Machine:" .. definitionId,
-		kind = "Machine",
-		id = definitionId,
-		name = MachineDefinitions[definitionId].DisplayName,
-		category = "Research",
-	})
-end
-for _, pipeId in PipeDefinitions.Order do
-	addItem({
-		key = "Transport:" .. pipeId,
-		kind = "Transport",
-		id = pipeId,
-		name = PipeDefinitions.Types[pipeId].DisplayName,
-		category = "Transport",
-	})
-end
-
--- The player's own layout for keys 1 to 9. "" is an empty slot.
-local HOTBAR_SIZE = 9
-local hotbarItems: { string } = {
-	"Machine:Dryer",
-	"Machine:Shredder",
-	"Machine:PelletMill",
-	-- The starting power kit sits right beside the first line it has to run.
-	"Machine:HandCrank",
-	"Machine:SolarPanel",
-	"Transport:Item",
-	"Machine:PowerPole",
-	"Machine:StrawGenerator",
-	-- The office is where research starts, so it gets the last key.
-	"Machine:CooperativeOffice",
-}
-
-type Slot = {
-	index: number,
-	kind: string,
-	id: string,
-	itemKey: string,
-	button: TextButton,
-	stroke: UIStroke,
-	content: Frame,
-	viewport: ViewportFrame?,
-	camera: Camera?,
-	focus: Vector3,
-	radius: number,
-	angle: number,
-	cost: TextLabel?,
-	lockOverlay: Frame?,
-}
-local slots: { Slot } = {}
-local hoveredSlot: Slot? = nil
 
 type Preview = { camera: Camera?, focus: Vector3, radius: number, angle: number }
 
@@ -651,94 +574,6 @@ local function previewModelFor(item: Item): Model
 	return fallback
 end
 
-local function priceText(item: Item): string
-	if item.kind == "Machine" then
-		return UITheme.formatNumber(MachineDefinitions[item.id].Cost)
-	elseif item.kind == "Transport" then
-		return PipeDefinitions.Types[item.id].ShortName
-	end
-	-- Research items already say SOON on their cover.
-	return ""
-end
-
--- Fills a frame with an item's 3D preview, its price tag, and a lock cover.
-local function buildItemVisual(
-	parent: Frame,
-	item: Item
-): (ViewportFrame, Camera, Vector3, number, TextLabel, Frame)
-	local viewport, camera, focus, radius = createViewport(parent, previewModelFor(item))
-	local cost = UITheme.text(parent, {
-		name = "Cost",
-		text = priceText(item),
-		size = UDim2.new(1, -10, 0, 16),
-		font = Fonts.Heavy,
-		textSize = 13,
-		color = Colors.Gold,
-		alignX = Enum.TextXAlignment.Right,
-	})
-	cost.Position = UDim2.new(0, 5, 1, -19)
-	cost.ZIndex = 3
-	cost.TextStrokeTransparency = 0.4
-	cost.TextStrokeColor3 = Colors.Panel
-	if item.kind == "Transport" and item.id ~= "Item" then
-		cost.TextColor3 = Color3.fromRGB(table.unpack(PipeDefinitions.Types[item.id].Color))
-	elseif item.kind == "Future" then
-		cost.TextColor3 = Colors.Muted
-	end
-
-	local lockOverlay = Instance.new("Frame")
-	lockOverlay.Name = "Locked"
-	lockOverlay.Size = UDim2.fromScale(1, 1)
-	lockOverlay.BackgroundColor3 = Colors.Panel
-	lockOverlay.BackgroundTransparency = 0.35
-	lockOverlay.ZIndex = 2
-	lockOverlay.Visible = false
-	lockOverlay.Parent = parent
-	UITheme.corner(lockOverlay, 12)
-	UITheme.text(lockOverlay, {
-		name = "Label",
-		text = if item.kind == "Machine" then "LOCKED" else "SOON",
-		size = UDim2.fromScale(1, 1),
-		font = Fonts.Heavy,
-		textSize = 12,
-		color = Colors.Muted,
-		alignX = Enum.TextXAlignment.Center,
-	}).ZIndex =
-		2
-	return viewport, camera, focus, radius, cost, lockOverlay
-end
-
-local function setSlotItem(slot: Slot, itemKey: string)
-	if slot.itemKey == itemKey and slot.viewport ~= nil then
-		return
-	end
-	slot.content:ClearAllChildren()
-	slot.itemKey = itemKey
-	slot.viewport, slot.camera, slot.cost, slot.lockOverlay = nil, nil, nil, nil
-	local item = ITEM_BY_KEY[itemKey]
-	if item == nil then
-		slot.kind, slot.id = "Empty", ""
-		return
-	end
-	slot.kind, slot.id = item.kind, item.id
-	local viewport, camera, focus, radius, cost, lockOverlay = buildItemVisual(slot.content, item)
-	slot.viewport, slot.camera, slot.focus, slot.radius = viewport, camera, focus, radius
-	slot.cost, slot.lockOverlay = cost, lockOverlay
-	slot.angle = math.rad(40)
-	framePreview(slot)
-end
-
-local function createDivider(order: number)
-	local divider = Instance.new("Frame")
-	divider.Name = "Divider"
-	divider.Size = UDim2.fromOffset(1, 56)
-	divider.BackgroundColor3 = Colors.Outline
-	divider.BackgroundTransparency = 0.85
-	divider.BorderSizePixel = 0
-	divider.LayoutOrder = order
-	divider.Parent = hotbar
-end
-
 type ToolSlot = { button: TextButton, stroke: UIStroke, caption: TextLabel }
 
 -- Tool slots draw their icon from small frames so no image upload is needed.
@@ -787,7 +622,7 @@ local function createToolSlot(
 	return { button = button, stroke = stroke, caption = caption }
 end
 
-local function iconBlock(parent: Frame, position: UDim2, size: UDim2, color: Color3)
+local function iconBlock(parent: Frame, position: UDim2, size: UDim2, color: Color3): Frame
 	local block = Instance.new("Frame")
 	block.Position = position
 	block.Size = size
@@ -795,114 +630,31 @@ local function iconBlock(parent: Frame, position: UDim2, size: UDim2, color: Col
 	block.BorderSizePixel = 0
 	block.Parent = parent
 	UITheme.corner(block, 3)
+	return block
 end
 
-for index = 1, HOTBAR_SIZE do
-	local button = Instance.new("TextButton")
-	button.Name = "Slot" .. index
-	button.Text = ""
-	button.AutoButtonColor = false
-	button.Size = UDim2.fromOffset(76, 76)
-	button.BackgroundColor3 = Colors.Raised
-	button.BackgroundTransparency = 0.1
-	button.BorderSizePixel = 0
-	button.LayoutOrder = index
-	button.Parent = hotbar
-	UITheme.corner(button, 12)
-	local stroke = UITheme.outline(button)
-
-	local content = Instance.new("Frame")
-	content.Name = "Content"
-	content.Size = UDim2.fromScale(1, 1)
-	content.BackgroundTransparency = 1
-	content.Parent = button
-
-	local keyCap = UITheme.keyCap(button, tostring(index))
-	keyCap.Position = UDim2.fromOffset(5, 5)
-	keyCap.Size = UDim2.fromOffset(0, 18)
-	keyCap.ZIndex = 3
-	keyCap.BackgroundTransparency = 0.1
-
-	local slot: Slot = {
-		index = index,
-		kind = "Empty",
-		id = "",
-		itemKey = "",
-		button = button,
-		stroke = stroke,
-		content = content,
-		viewport = nil,
-		camera = nil,
-		focus = Vector3.zero,
-		radius = 1,
-		angle = math.rad(40),
-		cost = nil,
-		lockOverlay = nil,
-	}
-	table.insert(slots, slot)
-	setSlotItem(slot, hotbarItems[index])
-end
-createDivider(50)
--- The cart opens the shop: buy machines and read their details there.
-local shopTool = createToolSlot(51, "Shop", "M", function(icon)
-	local basket = Instance.new("Frame")
-	basket.Name = "Basket"
-	basket.AnchorPoint = Vector2.new(0.5, 0)
-	basket.Position = UDim2.new(0.5, 2, 0, 4)
-	basket.Size = UDim2.fromOffset(22, 12)
-	basket.BackgroundColor3 = Colors.Teal
-	basket.BorderSizePixel = 0
-	basket.Parent = icon
-	UITheme.corner(basket, 3)
-	local handle = Instance.new("Frame")
-	handle.Name = "Handle"
-	handle.Position = UDim2.fromOffset(1, 0)
-	handle.Size = UDim2.fromOffset(6, 3)
-	handle.BackgroundColor3 = Colors.Teal
-	handle.BorderSizePixel = 0
-	handle.Parent = icon
-	for _, x in { 9, 21 } do
-		local wheel = Instance.new("Frame")
-		wheel.Name = "Wheel"
-		wheel.Position = UDim2.fromOffset(x, 19)
-		wheel.Size = UDim2.fromOffset(6, 6)
-		wheel.BackgroundColor3 = Colors.Gold
-		wheel.BorderSizePixel = 0
-		wheel.Parent = icon
-		UITheme.corner(wheel, 3)
+-- Build opens the build menu (B): every machine and pipe, by tier and category.
+local buildTool = createToolSlot(51, "Build", "1", function(icon)
+	for row = 0, 1 do
+		for columnIndex = 0, 1 do
+			iconBlock(
+				icon,
+				UDim2.fromOffset(3 + columnIndex * 13, 3 + row * 13),
+				UDim2.fromOffset(11, 11),
+				if row == columnIndex then Colors.Good else Colors.Text
+			)
+		end
 	end
 end)
--- The bag opens the inventory: what you own.
-local bagTool = createToolSlot(52, "Bag", "B", function(icon)
-	local body = Instance.new("Frame")
-	body.Name = "BagBody"
-	body.AnchorPoint = Vector2.new(0.5, 1)
-	body.Position = UDim2.fromScale(0.5, 1)
-	body.Size = UDim2.fromOffset(24, 18)
-	body.BackgroundColor3 = Colors.Straw
-	body.BorderSizePixel = 0
-	body.Parent = icon
-	UITheme.corner(body, 5)
-	local flap = Instance.new("Frame")
-	flap.Name = "BagFlap"
-	flap.Position = UDim2.fromOffset(0, 0)
-	flap.Size = UDim2.new(1, 0, 0, 6)
-	flap.BackgroundColor3 = Color3.fromRGB(188, 140, 52)
-	flap.BorderSizePixel = 0
-	flap.Parent = body
-	UITheme.corner(flap, 4)
-	local handle = Instance.new("Frame")
-	handle.Name = "BagHandle"
-	handle.AnchorPoint = Vector2.new(0.5, 1)
-	handle.Position = UDim2.new(0.5, 0, 1, -16)
-	handle.Size = UDim2.fromOffset(14, 10)
-	handle.BackgroundTransparency = 1
-	handle.Parent = icon
-	UITheme.corner(handle, 5)
-	UITheme.outline(handle, Colors.Straw, 0, 2.5)
+-- The wrench (V) strings power wires between pole coils and machines.
+local wrenchTool = createToolSlot(52, "Wrench", "2", function(icon)
+	local handle = iconBlock(icon, UDim2.fromOffset(12, 6), UDim2.fromOffset(5, 22), Colors.Text)
+	handle.Rotation = 45
+	local head = iconBlock(icon, UDim2.fromOffset(16, 1), UDim2.fromOffset(12, 9), Colors.Gold)
+	head.Rotation = 45
 end)
 -- The Delete tool removes your machines and belt tiles (and pipes once they exist).
-local deleteTool = createToolSlot(53, "Delete", "X", function(icon)
+local deleteTool = createToolSlot(53, "Delete", "3", function(icon)
 	for _, angle in { 45, -45 } do
 		local bar = Instance.new("Frame")
 		bar.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -915,7 +667,7 @@ local deleteTool = createToolSlot(53, "Delete", "X", function(icon)
 		UITheme.corner(bar, 2)
 	end
 end)
-local gridTool = createToolSlot(54, "Grid", "G", function(icon)
+local gridTool = createToolSlot(54, "Grid", "4", function(icon)
 	for row = 0, 2 do
 		for columnIndex = 0, 2 do
 			iconBlock(
@@ -927,92 +679,6 @@ local gridTool = createToolSlot(54, "Grid", "G", function(icon)
 		end
 	end
 end)
-
--- Tooltip ---------------------------------------------------------------------------------------
-
-local tooltip = UITheme.card("Tooltip", screenGui, 236)
-tooltip.AnchorPoint = Vector2.new(0.5, 1)
-tooltip.Visible = false
-tooltip.ZIndex = 10
-UITheme.padding(tooltip, 10, 12)
-UITheme.list(tooltip, 3)
-local tooltipName =
-	UITheme.text(tooltip, { name = "Name", font = Fonts.Heavy, textSize = 16, order = 1 })
-local tooltipRecipe = UITheme.text(
-	tooltip,
-	{ name = "Recipe", font = Fonts.Bold, textSize = 13, color = Colors.Teal, order = 2 }
-)
-local tooltipDetail = UITheme.text(tooltip, {
-	name = "Detail",
-	size = UDim2.fromScale(1, 0),
-	textSize = 12,
-	color = Colors.Muted,
-	order = 3,
-	wrap = true,
-})
-tooltipDetail.AutomaticSize = Enum.AutomaticSize.Y
-local tooltipStatus =
-	UITheme.text(tooltip, { name = "Status", font = Fonts.Bold, textSize = 12, order = 4 })
-for _, child in tooltip:GetDescendants() do
-	if child:IsA("GuiObject") then
-		child.ZIndex = 10
-	end
-end
-
-local function showTooltip(slot: Slot?)
-	if slot == nil or slot.kind == "Empty" then
-		tooltip.Visible = false
-		return
-	end
-	if slot.kind == "Future" then
-		local item = ITEM_BY_KEY[slot.itemKey]
-		tooltipName.Text = item.name
-		tooltipRecipe.Text = item.blurb or ""
-		tooltipDetail.Text = "Unlocks through research in the coming tier update."
-		tooltipStatus.Text = "Coming soon"
-		tooltipStatus.TextColor3 = Colors.Muted
-	elseif slot.kind == "Transport" then
-		local pipe = PipeDefinitions.Types[slot.id]
-		tooltipName.Text = pipe.DisplayName
-		tooltipRecipe.Text = pipe.Carries
-		if pipe.Ready then
-			tooltipDetail.Text =
-				"Lay tiles from a machine OUT to the next machine IN. Hold and drag to lay a line."
-			tooltipStatus.Text = string.format("%d credits per tile", pipe.Cost or 0)
-			tooltipStatus.TextColor3 = Colors.Gold
-		else
-			tooltipDetail.Text = "For the coming energy machines."
-			tooltipStatus.Text = "Arrives with the energy update"
-			tooltipStatus.TextColor3 = Colors.Muted
-		end
-	else
-		local definition = MachineDefinitions[slot.id]
-		local info = ITEM_INFO[slot.id] or { recipe = "", detail = "" }
-		tooltipName.Text = definition.DisplayName
-		tooltipRecipe.Text = info.recipe
-		tooltipDetail.Text = info.detail
-		local research = researchNeeded(definition)
-		if research then
-			tooltipStatus.Text = string.format("Research %s at the office", string.lower(research))
-			tooltipStatus.TextColor3 = Colors.Muted
-		elseif definition.UnlockAfterFirstSale and not isUnlocked() then
-			tooltipStatus.Text = "Unlocks after your first pellet sale"
-			tooltipStatus.TextColor3 = Colors.Muted
-		elseif credits() < definition.Cost then
-			tooltipStatus.Text =
-				string.format("Needs %s credits", UITheme.formatNumber(definition.Cost))
-			tooltipStatus.TextColor3 = Colors.Danger
-		else
-			tooltipStatus.Text = string.format("%s credits", UITheme.formatNumber(definition.Cost))
-			tooltipStatus.TextColor3 = Colors.Gold
-		end
-	end
-	local position = slot.button.AbsolutePosition
-	local size = slot.button.AbsoluteSize
-	-- Sit above the key hint bar so the two never overlap.
-	tooltip.Position = UDim2.fromOffset(position.X + size.X / 2, position.Y - 58)
-	tooltip.Visible = true
-end
 
 -- Key hints and toast ----------------------------------------------------------------------------
 
@@ -1162,62 +828,18 @@ end
 
 -- Refresh -----------------------------------------------------------------------------------------
 
-local function isSelected(slot: Slot): boolean
-	if slot.kind == "Empty" or slot.kind == "Future" then
-		return false
-	end
-	if slot.kind == "Transport" then
-		return mode == "Conveyor" and slot.id == transportMedium
-	end
-	return mode == "Place" and selectedId == slot.id
-end
-
 local function refreshPanel()
-	local balance = credits()
-	for _, slot in slots do
-		local selected = isSelected(slot)
-		local locked = false
-		if slot.kind == "Transport" then
-			locked = not PipeDefinitions.Types[slot.id].Ready
-		elseif slot.kind == "Future" then
-			locked = true
-		elseif slot.kind == "Machine" then
-			local definition = MachineDefinitions[slot.id]
-			locked = machineLocked(definition)
-			if slot.cost then
-				local stock = player:GetAttribute("Owned_" .. slot.id)
-				if typeof(stock) == "number" and stock > 0 then
-					slot.cost.Text = "x" .. stock
-					slot.cost.TextColor3 = Colors.Good
-				else
-					slot.cost.Text = UITheme.formatNumber(definition.Cost)
-					slot.cost.TextColor3 = if balance < definition.Cost
-						then Colors.Danger
-						else Colors.Gold
-				end
-			end
-		end
-		if slot.lockOverlay then
-			slot.lockOverlay.Visible = locked
-		end
-		if slot.viewport then
-			slot.viewport.ImageColor3 = if locked
-				then Color3.fromRGB(110, 110, 110)
-				else Color3.new(1, 1, 1)
-		end
-		slot.stroke.Color = if selected then Colors.Gold else Colors.Outline
-		slot.stroke.Transparency = if selected then 0 else 0.88
-		slot.stroke.Thickness = if selected then 2 else 1
-		slot.button.BackgroundColor3 = if selected or hoveredSlot == slot
-			then Colors.Hover
-			else Colors.Raised
-	end
-
 	local deleting = mode == "Delete"
 	deleteTool.stroke.Color = if deleting then Colors.Danger else Colors.Outline
 	deleteTool.stroke.Transparency = if deleting then 0 else 0.88
 	deleteTool.stroke.Thickness = if deleting then 2 else 1
 	deleteTool.caption.TextColor3 = if deleting then Colors.Danger else Colors.Muted
+
+	local wiring = mode == "Wire"
+	wrenchTool.stroke.Color = if wiring then Colors.Gold else Colors.Outline
+	wrenchTool.stroke.Transparency = if wiring then 0 else 0.88
+	wrenchTool.stroke.Thickness = if wiring then 2 else 1
+	wrenchTool.caption.TextColor3 = if wiring then Colors.Gold else Colors.Muted
 
 	gridTool.caption.Text = if snapEnabled then "GRID ON" else "GRID OFF"
 	gridTool.caption.TextColor3 = if snapEnabled then Colors.Teal else Colors.Muted
@@ -1238,6 +860,12 @@ local function refreshPanel()
 	elseif mode == "Delete" then
 		setHints({
 			{ "LMB", "Delete, drag across belts to clear a run" },
+			{ "Q", "Done" },
+		})
+	elseif mode == "Wire" then
+		setHints({
+			{ "LMB", "Click a pole coil, then a machine or another coil" },
+			{ "RMB", "Let go of the wire" },
 			{ "Q", "Done" },
 		})
 	elseif mode == "Conveyor" then
@@ -1309,6 +937,9 @@ local function tileBlockers(): { PlacementRules.Rect }
 	return rects
 end
 
+-- Filled in by the wrench section below.
+local wrench: any = {}
+
 local function setMode(newMode: string, id: string?)
 	mode = newMode
 	selectedId = if newMode == "Place" then id else nil
@@ -1332,244 +963,60 @@ local function setMode(newMode: string, id: string?)
 	if mode ~= "Delete" then
 		clearDeleteTarget()
 	end
+	if mode ~= "Wire" then
+		wrench.clear()
+	end
 	setPortsVisible(mode == "Place" or mode == "Conveyor")
 	refreshPanel()
 end
 
-local function activateSlot(slot: Slot)
-	if slot.kind == "Empty" then
-		showMessage(
-			"Empty slot. Press M for the shop or B for your inventory and drag an item here."
-		)
-		return
-	elseif slot.kind == "Future" then
-		showMessage("This machine unlocks through research in the coming tier update.")
-		return
-	end
-	if isSelected(slot) then
-		setMode("None")
-	elseif slot.kind == "Transport" then
-		local pipe = PipeDefinitions.Types[slot.id]
-		if not pipe.Ready then
-			showMessage(
-				string.format(
-					"%ss arrive with the energy update. No machine uses them yet.",
-					pipe.DisplayName
-				)
-			)
-			return
-		end
-		transportMedium = slot.id
-		setMode("Conveyor")
-	else
-		setMode("Place", slot.id)
-	end
+-- Lay belts or pipes of one kind.
+local function beginTransport(medium: string)
+	transportMedium = medium
+	setMode("Conveyor")
 end
 
--- The shop and inventory live in their own scope: the script's top level is close to Luau's limit
--- of 200 locals. The rest of the script reaches them through `panels`.
+-- The build menu lives in its own scope: the script's top level is close to Luau's limit of 200
+-- locals. The rest of the script reaches it through `panels`.
 local panels: any = {}
 do
-	-- Shop and inventory ---------------------------------------------------------------------------
-	-- M or the cart opens the shop: every buildable item in a scrolling list, with an index pane that
-	-- shows the selected item's stats and lets the player buy it into their inventory. B or the bag
-	-- opens the inventory: what the player actually owns (machines in storage, carried straw, what is
-	-- placed, plots, engineers, research). Items drag from either panel onto hotbar slots 1 to 9, hotbar
-	-- items drag between slots to swap, and dragging one off the hotbar puts it away. Hovering an item
-	-- and pressing 1 to 9 also assigns it.
+	-- Build menu ------------------------------------------------------------------------------------
+	-- B or the Build button opens it, laid out like Industrialist's: the selected item on the left
+	-- (its picture, what it does, its price and Start Placing [T]), every item on the right in
+	-- collapsible categories, and tier tabs I to IV down the right edge. Search [R] filters every
+	-- tier at once. Click an item to read about it, click it again (or press T) to place it.
+	-- There is no inventory: placing pays the price, and removing a machine pays it all back.
+	-- Machines from the starting kit show their free count on the tile and are used first.
 
-	local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-	local buyRemote = Remotes:WaitForChild("BuyItem") :: RemoteFunction
-	local sellRemote = Remotes:WaitForChild("SellItem") :: RemoteFunction
+	local MENU_WIDTH = 1000
+	local MENU_HEIGHT = 560
+	local LEFT_WIDTH = 280
+	local TIER_WIDTH = 64
+	local TILE_WIDTH = 128
+	local TILE_HEIGHT = 120
+	local TIER_NAMES = { "I", "II", "III", "IV" }
+	local CATEGORY_ORDER =
+		{ "Power", "Extractors", "Factories", "Farm", "Logistics", "Selling", "Research" }
 
-	local PANEL_WIDTH = 760
-	local PANEL_HEIGHT = 380
-	local LIST_WIDTH = 432
+	local function setTool(tool: ToolSlot, active: boolean)
+		tool.stroke.Color = if active then Colors.Text else Colors.Outline
+		tool.stroke.Transparency = if active then 0 else 0.88
+		tool.stroke.Thickness = if active then 2 else 1
+	end
 
-	local openPanel: string? = nil -- "Shop", "Inventory", or nil
-	local hoveredCard: Item? = nil
+	local isOpen = false
+	local hoveredItem: Item? = nil
 	local selectedItem: Item? = nil
+	local selectedTier = 1
+	local searchText = ""
+	local collapsed: { [string]: boolean } = {}
 
-	local function ownedCount(definitionId: string): number
-		local value = player:GetAttribute("Owned_" .. definitionId)
-		return if typeof(value) == "number" then value else 0
-	end
-
-	-- A fixed-size dark panel that sits above the hotbar, so it never covers it.
-	local function createPanel(name: string, title: string, hint: string): (Frame, TextButton)
-		local panel = UITheme.card(name, screenGui, PANEL_WIDTH)
-		panel.AutomaticSize = Enum.AutomaticSize.None
-		panel.Size = UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT)
-		panel.AnchorPoint = Vector2.new(0.5, 1)
-		panel.Position = UDim2.new(0.5, 0, 1, -128)
-		panel.Visible = false
-		panel.ZIndex = 20
-		UITheme.padding(panel, 12, 14)
-
-		local header = Instance.new("Frame")
-		header.Name = "Header"
-		header.Size = UDim2.new(1, 0, 0, 34)
-		header.BackgroundTransparency = 1
-		header.Parent = panel
-		UITheme.text(header, {
-			name = "Title",
-			text = title,
-			size = UDim2.new(1, -40, 0, 20),
-			font = Fonts.Heavy,
-			textSize = 17,
-			color = Colors.Gold,
-		})
-		UITheme.text(header, {
-			name = "Hint",
-			text = hint,
-			size = UDim2.new(1, -40, 0, 14),
-			textSize = 12,
-			color = Colors.Muted,
-		}).Position =
-			UDim2.fromOffset(0, 20)
-
-		local close = Instance.new("TextButton")
-		close.Name = "Close"
-		close.AnchorPoint = Vector2.new(1, 0)
-		close.Position = UDim2.fromScale(1, 0)
-		close.Size = UDim2.fromOffset(28, 28)
-		close.BackgroundColor3 = Colors.Raised
-		close.Text = "X"
-		close.FontFace = Fonts.Heavy
-		close.TextSize = 16
-		close.TextColor3 = Colors.Text
-		close.AutoButtonColor = true
-		close.Parent = header
-		UITheme.corner(close, 8)
-		return panel, close
-	end
-
-	local function createScroller(
-		parent: Instance,
-		name: string,
-		size: UDim2,
-		position: UDim2
-	): ScrollingFrame
-		local scroller = Instance.new("ScrollingFrame")
-		scroller.Name = name
-		scroller.Size = size
-		scroller.Position = position
-		scroller.BackgroundTransparency = 1
-		scroller.BorderSizePixel = 0
-		scroller.ScrollBarThickness = 6
-		scroller.ScrollBarImageColor3 = Colors.Muted
-		scroller.CanvasSize = UDim2.new()
-		scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		scroller.ScrollingDirection = Enum.ScrollingDirection.Y
-		scroller.Parent = parent
-		UITheme.list(scroller, 8)
-		local padding = Instance.new("UIPadding")
-		padding.PaddingRight = UDim.new(0, 10)
-		padding.Parent = scroller
-		return scroller
-	end
-
-	local function createSection(parent: Instance, order: number, title: string): Frame
-		UITheme.text(parent, {
-			name = title .. "Title",
-			text = string.upper(title),
-			size = UDim2.new(1, 0, 0, 16),
-			font = Fonts.Heavy,
-			textSize = 12,
-			color = Colors.Muted,
-			order = order,
-		})
-		local grid = Instance.new("Frame")
-		grid.Name = title .. "Grid"
-		grid.Size = UDim2.fromScale(1, 0)
-		grid.AutomaticSize = Enum.AutomaticSize.Y
-		grid.BackgroundTransparency = 1
-		grid.LayoutOrder = order + 1
-		grid.Parent = parent
-		local layout = Instance.new("UIGridLayout")
-		layout.CellSize = UDim2.fromOffset(76, 92)
-		layout.CellPadding = UDim2.fromOffset(8, 8)
-		layout.SortOrder = Enum.SortOrder.LayoutOrder
-		layout.Parent = grid
-		return grid
-	end
-
-	type Card = {
-		item: Item,
-		button: TextButton,
-		badge: TextLabel,
-		preview: Preview,
-		lockOverlay: Frame,
-		cost: TextLabel,
-		stroke: UIStroke,
-	}
-
-	-- One item card: preview, name, price (or owned count), hotbar key badge, and lock cover.
-	local function createCard(parent: Instance, item: Item, order: number): Card
-		local button = Instance.new("TextButton")
-		button.Name = item.key
-		button.Text = ""
-		button.AutoButtonColor = false
-		button.BackgroundColor3 = Colors.Raised
-		button.BackgroundTransparency = 0.1
-		button.BorderSizePixel = 0
-		button.LayoutOrder = order
-		button.Parent = parent
-		UITheme.corner(button, 12)
-		local stroke = UITheme.outline(button)
-
-		local visual = Instance.new("Frame")
-		visual.Name = "Visual"
-		visual.Size = UDim2.fromOffset(76, 68)
-		visual.BackgroundTransparency = 1
-		visual.Parent = button
-		local _, camera, focus, radius, cost, lockOverlay = buildItemVisual(visual, item)
-
-		UITheme.text(button, {
-			name = "Name",
-			text = item.name,
-			size = UDim2.new(1, -6, 0, 20),
-			font = Fonts.Bold,
-			textSize = 10,
-			alignX = Enum.TextXAlignment.Center,
-			wrap = true,
-		}).Position =
-			UDim2.new(0, 3, 1, -22)
-
-		local badge = UITheme.text(button, {
-			name = "Badge",
-			size = UDim2.fromOffset(20, 20),
-			font = Fonts.Heavy,
-			textSize = 12,
-			color = Colors.Panel,
-			alignX = Enum.TextXAlignment.Center,
-		})
-		badge.Position = UDim2.fromOffset(6, 6)
-		badge.BackgroundColor3 = Colors.Gold
-		badge.BackgroundTransparency = 0
-		badge.Visible = false
-		UITheme.corner(badge, 10)
-
-		local card: Card = {
-			item = item,
-			button = button,
-			badge = badge,
-			preview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) },
-			lockOverlay = lockOverlay,
-			cost = cost,
-			stroke = stroke,
-		}
-		framePreview(card.preview)
-		return card
-	end
-
-	local function raise(root: Instance)
-		for _, descendant in root:GetDescendants() do
-			if descendant:IsA("GuiObject") then
-				descendant.ZIndex = math.max(descendant.ZIndex, 20)
-					+ (if descendant.Name == "Badge" then 2 else 0)
-			end
+	local function freeCount(item: Item): number
+		if item.kind ~= "Machine" then
+			return 0
 		end
+		local value = player:GetAttribute("Owned_" .. item.id)
+		return if typeof(value) == "number" then value else 0
 	end
 
 	local function itemLocked(item: Item): boolean
@@ -1578,115 +1025,367 @@ do
 			or (item.kind == "Machine" and machineLocked(MachineDefinitions[item.id]))
 	end
 
-	-- Shop ----------------------------------------------------------------------------------------
-
-	local shop, shopClose = createPanel(
-		"Shop",
-		"SHOP",
-		"Click an item for its details. Buy it into your inventory, or drag it onto your hotbar."
-	)
-	local shopList =
-		createScroller(shop, "List", UDim2.new(0, LIST_WIDTH, 1, -42), UDim2.fromOffset(0, 42))
-
-	local shopCards: { Card } = {}
-	local sectionGrids: { [string]: Frame } = {
-		Machines = createSection(shopList, 10, "Machines"),
-		Power = createSection(shopList, 12, "Power"),
-		Farm = createSection(shopList, 15, "Farm machines"),
-		Transport = createSection(shopList, 20, "Transport"),
-		Research = createSection(shopList, 30, "Tier 2 (research)"),
-	}
-	for order, item in ITEMS do
-		table.insert(shopCards, createCard(sectionGrids[item.category], item, order))
+	local function bevel(frame: GuiObject, top: Color3, bottom: Color3)
+		local gradient = Instance.new("UIGradient")
+		gradient.Rotation = 90
+		gradient.Color = ColorSequence.new(top, bottom)
+		gradient.Parent = frame
 	end
 
-	-- Index: the details of the selected item.
-	local indexPane = Instance.new("Frame")
-	indexPane.Name = "Index"
-	indexPane.Position = UDim2.fromOffset(LIST_WIDTH + 12, 42)
-	indexPane.Size = UDim2.new(1, -(LIST_WIDTH + 12), 1, -42)
-	indexPane.BackgroundColor3 = Colors.Raised
-	indexPane.BackgroundTransparency = 0.25
-	indexPane.BorderSizePixel = 0
-	indexPane.Parent = shop
-	UITheme.corner(indexPane, 12)
+	local function label(
+		parent: Instance,
+		name: string,
+		text: string,
+		size: UDim2,
+		textSize: number
+	): TextLabel
+		return UITheme.text(parent, {
+			name = name,
+			text = text,
+			size = size,
+			font = Fonts.Bold,
+			textSize = textSize,
+			alignX = Enum.TextXAlignment.Center,
+		})
+	end
 
-	local indexView = Instance.new("Frame")
-	indexView.Name = "Preview"
-	indexView.Size = UDim2.new(1, 0, 0, 110)
-	indexView.BackgroundTransparency = 1
-	indexView.Parent = indexPane
-	local indexPreview: Preview? = nil
+	local menu = Instance.new("Frame")
+	menu.Name = "BuildMenu"
+	menu.AnchorPoint = Vector2.new(0.5, 0.5)
+	menu.Position = UDim2.new(0.5, 0, 0.5, -30)
+	menu.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
+	menu.BackgroundTransparency = 1
+	menu.Visible = false
+	menu.ZIndex = 20
+	menu.Parent = screenGui
 
-	local indexBody =
-		createScroller(indexPane, "Body", UDim2.new(1, -12, 1, -158), UDim2.fromOffset(12, 112))
-	local indexName = UITheme.text(indexBody, {
-		name = "Name",
-		size = UDim2.new(1, 0, 0, 20),
-		font = Fonts.Heavy,
-		textSize = 17,
+	-- Centred over the item list, between the search box and the close button.
+	local title = label(menu, "Title", "Build", UDim2.fromOffset(140, 44), 30)
+	title.Position = UDim2.fromOffset(LEFT_WIDTH + 12 + 260, 0)
+	title.TextStrokeTransparency = 0.6
+
+	local search = Instance.new("TextBox")
+	search.Name = "Search"
+	search.Position = UDim2.fromOffset(LEFT_WIDTH + 14, 6)
+	search.Size = UDim2.fromOffset(240, 32)
+	search.BackgroundColor3 = Colors.Panel
+	search.BackgroundTransparency = 0.1
+	search.PlaceholderText = "Search [R]"
+	search.PlaceholderColor3 = Colors.Muted
+	search.Text = ""
+	search.ClearTextOnFocus = false
+	search.FontFace = Fonts.Regular
+	search.TextSize = 17
+	search.TextColor3 = Colors.Text
+	search.TextXAlignment = Enum.TextXAlignment.Left
+	search.Parent = menu
+	UITheme.corner(search, 8)
+	UITheme.outline(search, Colors.Outline, 0.75)
+	UITheme.padding(search, 0, 10)
+
+	local close = Instance.new("TextButton")
+	close.Name = "Close"
+	close.AnchorPoint = Vector2.new(1, 0)
+	close.Position = UDim2.new(1, -TIER_WIDTH - 6, 0, 6)
+	close.Size = UDim2.fromOffset(130, 30)
+	close.BackgroundColor3 = Colors.Danger
+	close.Text = "X"
+	close.FontFace = Fonts.Heavy
+	close.TextSize = 18
+	close.TextColor3 = Colors.Text
+	close.AutoButtonColor = true
+	close.Parent = menu
+	UITheme.corner(close, 8)
+	bevel(close, Color3.new(1, 1, 1), Color3.fromRGB(170, 170, 170))
+
+	local function panel(name: string, position: UDim2, size: UDim2): Frame
+		local frame = Instance.new("Frame")
+		frame.Name = name
+		frame.Position = position
+		frame.Size = size
+		frame.BackgroundColor3 = Colors.Panel
+		frame.BackgroundTransparency = 0.04
+		frame.BorderSizePixel = 0
+		frame.Parent = menu
+		UITheme.corner(frame, 14)
+		UITheme.outline(frame, Colors.Outline, 0.8)
+		return frame
+	end
+
+	-- Left: the selected item ----------------------------------------------------------------------
+
+	local left =
+		panel("Item", UDim2.fromOffset(0, 50), UDim2.fromOffset(LEFT_WIDTH, MENU_HEIGHT - 50))
+	UITheme.padding(left, 12, 12)
+
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.Size = UDim2.new(1, 0, 0, 200)
+	card.BackgroundColor3 = Colors.Raised
+	card.BorderSizePixel = 0
+	card.Parent = left
+	UITheme.corner(card, 12)
+	UITheme.outline(card, Colors.Outline, 0.85)
+	bevel(card, Color3.new(1, 1, 1), Color3.fromRGB(150, 150, 150))
+	local cardName = label(card, "Name", "", UDim2.new(1, -12, 0, 34), 22)
+	cardName.Position = UDim2.fromOffset(6, 4)
+	cardName.TextScaled = true
+	local cardView = Instance.new("Frame")
+	cardView.Name = "View"
+	cardView.Position = UDim2.fromOffset(10, 40)
+	cardView.Size = UDim2.new(1, -20, 1, -50)
+	cardView.BackgroundTransparency = 1
+	cardView.Parent = card
+	local cardPreview: Preview? = nil
+
+	local about = Instance.new("ScrollingFrame")
+	about.Name = "About"
+	about.Position = UDim2.fromOffset(0, 212)
+	about.Size = UDim2.new(1, 0, 1, -212 - 76)
+	about.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+	about.BackgroundTransparency = 0.2
+	about.BorderSizePixel = 0
+	about.ScrollBarThickness = 5
+	about.ScrollBarImageColor3 = Colors.Muted
+	about.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	about.CanvasSize = UDim2.new()
+	about.Parent = left
+	UITheme.corner(about, 10)
+	UITheme.padding(about, 10, 10)
+	UITheme.list(about, 8)
+	local job = UITheme.text(about, {
+		name = "Job",
+		size = UDim2.fromScale(1, 0),
+		font = Fonts.Regular,
+		textSize = 16,
+		alignX = Enum.TextXAlignment.Center,
+		wrap = true,
 		order = 1,
 	})
-	local indexStatus = UITheme.text(indexBody, {
-		name = "Status",
-		size = UDim2.new(1, 0, 0, 16),
-		font = Fonts.Bold,
-		textSize = 12,
-		order = 2,
-	})
-	local indexStats = UITheme.text(indexBody, {
+	job.AutomaticSize = Enum.AutomaticSize.Y
+	local stats = UITheme.text(about, {
 		name = "Stats",
 		size = UDim2.fromScale(1, 0),
-		textSize = 12,
+		textSize = 13,
+		color = Colors.Muted,
 		wrap = true,
-		order = 3,
+		order = 2,
 		alignY = Enum.TextYAlignment.Top,
 	})
-	indexStats.AutomaticSize = Enum.AutomaticSize.Y
-	indexStats.RichText = true
-	local indexBlurb = UITheme.text(indexBody, {
-		name = "Blurb",
-		size = UDim2.fromScale(1, 0),
-		textSize = 12,
-		color = Colors.Muted,
-		wrap = true,
-		order = 4,
-	})
-	indexBlurb.AutomaticSize = Enum.AutomaticSize.Y
+	stats.AutomaticSize = Enum.AutomaticSize.Y
+	stats.RichText = true
 
-	local buyRow = Instance.new("Frame")
-	buyRow.Name = "Buy"
-	buyRow.AnchorPoint = Vector2.new(0, 1)
-	buyRow.Position = UDim2.new(0, 10, 1, -8)
-	buyRow.Size = UDim2.new(1, -20, 0, 32)
-	buyRow.BackgroundTransparency = 1
-	buyRow.Parent = indexPane
-	local ownedLabel = UITheme.text(buyRow, {
-		name = "Owned",
-		size = UDim2.fromScale(0.34, 1),
-		font = Fonts.Bold,
-		textSize = 12,
-		color = Colors.Muted,
-	})
+	local price = label(left, "Price", "", UDim2.new(1, 0, 0, 24), 20)
+	price.AnchorPoint = Vector2.new(0, 1)
+	price.Position = UDim2.new(0, 0, 1, -42)
+	price.TextColor3 = Colors.Good
 
-	local function buyButton(name: string, text: string, position: UDim2): TextButton
-		local button = Instance.new("TextButton")
-		button.Name = name
-		button.AnchorPoint = Vector2.new(1, 0)
-		button.Position = position
-		button.Size = UDim2.fromScale(0.31, 1)
-		button.BackgroundColor3 = Colors.Teal
-		button.Text = text
-		button.FontFace = Fonts.Heavy
-		button.TextSize = 12
-		button.TextColor3 = Colors.Panel
-		button.AutoButtonColor = true
-		button.Parent = buyRow
-		UITheme.corner(button, 8)
-		return button
+	local place = Instance.new("TextButton")
+	place.Name = "StartPlacing"
+	place.AnchorPoint = Vector2.new(0, 1)
+	place.Position = UDim2.fromScale(0, 1)
+	place.Size = UDim2.new(1, 0, 0, 38)
+	place.BackgroundColor3 = Colors.Good
+	place.Text = "Start Placing [T]"
+	place.FontFace = Fonts.Bold
+	place.TextSize = 19
+	place.TextColor3 = Color3.fromRGB(16, 40, 16)
+	place.AutoButtonColor = true
+	place.Parent = left
+	UITheme.corner(place, 10)
+	bevel(place, Color3.new(1, 1, 1), Color3.fromRGB(170, 170, 170))
+
+	-- Right: categories of item tiles --------------------------------------------------------------
+
+	local rightX = LEFT_WIDTH + 12
+	local right = panel(
+		"Items",
+		UDim2.fromOffset(rightX, 50),
+		UDim2.fromOffset(MENU_WIDTH - rightX - TIER_WIDTH - 10, MENU_HEIGHT - 50)
+	)
+	local list = Instance.new("ScrollingFrame")
+	list.Name = "List"
+	list.Size = UDim2.fromScale(1, 1)
+	list.BackgroundTransparency = 1
+	list.BorderSizePixel = 0
+	list.ScrollBarThickness = 6
+	list.ScrollBarImageColor3 = Colors.Muted
+	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	list.CanvasSize = UDim2.new()
+	list.Parent = right
+	UITheme.padding(list, 12, 14)
+	UITheme.list(list, 10)
+
+	type Tile = {
+		item: Item,
+		button: TextButton,
+		count: TextLabel,
+		lock: TextLabel,
+		stroke: UIStroke,
+		preview: Preview,
+	}
+	type Section = {
+		name: string,
+		header: TextButton,
+		arrow: TextLabel,
+		grid: Frame,
+		tiles: { Tile },
+	}
+	local sections: { [string]: Section } = {}
+	local tiles: { Tile } = {}
+
+	local function createSection(name: string, order: number): Section
+		local header = Instance.new("TextButton")
+		header.Name = name .. "Header"
+		header.Size = UDim2.new(1, 0, 0, 50)
+		header.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+		header.BackgroundTransparency = 0.1
+		header.Text = ""
+		header.AutoButtonColor = true
+		header.LayoutOrder = order * 2
+		header.Parent = list
+		UITheme.corner(header, 12)
+		UITheme.outline(header, Colors.Outline, 0.9)
+		label(header, "Title", name, UDim2.fromScale(1, 1), 28)
+		local arrow = label(header, "Arrow", "▼", UDim2.fromOffset(40, 50), 22)
+		arrow.AnchorPoint = Vector2.new(1, 0)
+		arrow.Position = UDim2.new(1, -8, 0, 0)
+
+		local grid = Instance.new("Frame")
+		grid.Name = name .. "Grid"
+		grid.Size = UDim2.fromScale(1, 0)
+		grid.AutomaticSize = Enum.AutomaticSize.Y
+		grid.BackgroundTransparency = 1
+		grid.LayoutOrder = order * 2 + 1
+		grid.Parent = list
+		local layout = Instance.new("UIGridLayout")
+		layout.CellSize = UDim2.fromOffset(TILE_WIDTH, TILE_HEIGHT)
+		layout.CellPadding = UDim2.fromOffset(8, 8)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = grid
+		local padding = Instance.new("UIPadding")
+		padding.PaddingLeft = UDim.new(0, 8)
+		padding.Parent = grid
+
+		local section = { name = name, header = header, arrow = arrow, grid = grid, tiles = {} }
+		header.Activated:Connect(function()
+			collapsed[name] = not collapsed[name]
+			panels.refresh()
+		end)
+		return section
 	end
-	local buyOne = buyButton("BuyOne", "BUY 1", UDim2.fromScale(0.66, 0))
-	local buyFive = buyButton("BuyFive", "BUY 5", UDim2.fromScale(1, 0))
+	for order, name in CATEGORY_ORDER do
+		sections[name] = createSection(name, order)
+	end
+
+	local function createTile(item: Item, order: number): Tile
+		local section = sections[item.category] or sections.Factories
+		local button = Instance.new("TextButton")
+		button.Name = item.key
+		button.Text = ""
+		button.AutoButtonColor = false
+		button.BackgroundColor3 = Colors.Raised
+		button.BorderSizePixel = 0
+		button.LayoutOrder = order
+		button.Parent = section.grid
+		UITheme.corner(button, 10)
+		local stroke = UITheme.outline(button, Colors.Outline, 0.85)
+		bevel(button, Color3.new(1, 1, 1), Color3.fromRGB(130, 130, 130))
+
+		local view = Instance.new("Frame")
+		view.Name = "View"
+		view.Position = UDim2.fromOffset(6, 26)
+		view.Size = UDim2.new(1, -12, 1, -44)
+		view.BackgroundTransparency = 1
+		view.Parent = button
+		local _, camera, focus, radius = createViewport(view, previewModelFor(item))
+
+		local name = label(button, "Name", item.name, UDim2.new(1, -8, 0, 22), 15)
+		name.Position = UDim2.fromOffset(4, 3)
+		name.TextScaled = true
+		local count = UITheme.text(button, {
+			name = "Count",
+			size = UDim2.fromOffset(60, 16),
+			font = Fonts.Bold,
+			textSize = 13,
+		})
+		count.Position = UDim2.new(0, 7, 1, -19)
+		local cost = UITheme.text(button, {
+			name = "Cost",
+			text = if item.kind == "Machine"
+				then UITheme.formatNumber(MachineDefinitions[item.id].Cost)
+				else UITheme.formatNumber(PipeDefinitions.Types[item.id].Cost or 0) .. "/tile",
+			size = UDim2.fromOffset(70, 16),
+			font = Fonts.Bold,
+			textSize = 13,
+			color = Colors.Good,
+			alignX = Enum.TextXAlignment.Right,
+		})
+		cost.AnchorPoint = Vector2.new(1, 0)
+		cost.Position = UDim2.new(1, -7, 1, -19)
+
+		local lock = label(button, "Lock", "LOCKED", UDim2.fromScale(1, 1), 16)
+		lock.BackgroundColor3 = Colors.Panel
+		lock.BackgroundTransparency = 0.35
+		lock.TextColor3 = Colors.Muted
+		lock.Visible = false
+		UITheme.corner(lock, 10)
+
+		local tile: Tile = {
+			item = item,
+			button = button,
+			count = count,
+			lock = lock,
+			stroke = stroke,
+			preview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) },
+		}
+		framePreview(tile.preview)
+		table.insert(section.tiles, tile)
+		return tile
+	end
+	for order, item in ITEMS do
+		table.insert(tiles, createTile(item, order))
+	end
+
+	-- Tier tabs ------------------------------------------------------------------------------------
+
+	local tierColumn =
+		panel("Tiers", UDim2.new(1, -TIER_WIDTH, 0, 60), UDim2.fromOffset(TIER_WIDTH, 4 * 58 + 10))
+	UITheme.padding(tierColumn, 6, 6)
+	UITheme.list(tierColumn, 6)
+	local tierButtons: { TextButton } = {}
+	for tier, tierName in TIER_NAMES do
+		local button = Instance.new("TextButton")
+		button.Name = "Tier" .. tier
+		button.Size = UDim2.fromOffset(TIER_WIDTH - 12, 52)
+		button.BackgroundColor3 = Colors.Raised
+		button.Text = tierName
+		button.FontFace = Fonts.Bold
+		button.TextSize = 26
+		button.TextColor3 = Colors.Text
+		button.AutoButtonColor = true
+		button.LayoutOrder = tier
+		button.Parent = tierColumn
+		UITheme.corner(button, 10)
+		UITheme.outline(button, Colors.Outline, 0.85)
+		bevel(button, Color3.new(1, 1, 1), Color3.fromRGB(140, 140, 140))
+		button.Activated:Connect(function()
+			selectedTier = tier
+			search.Text = ""
+			panels.refresh()
+		end)
+		tierButtons[tier] = button
+	end
+
+	-- Everything inside the menu draws above the world UI.
+	for _, descendant in menu:GetDescendants() do
+		if descendant:IsA("GuiObject") then
+			descendant.ZIndex = math.max(descendant.ZIndex, 20)
+				+ (if descendant.Name == "Lock" then 3 else 0)
+		end
+	end
+
+	-- Details --------------------------------------------------------------------------------------
 
 	local function per(value: number, seconds: number): string
 		local perMinute = value * 60 / seconds
@@ -1695,40 +1394,34 @@ do
 			else string.format("%.1f", perMinute)
 	end
 
-	-- The machine's numbers, read straight from its definition so the index never goes stale.
+	-- The item's numbers, read straight from its definition so the menu never goes stale.
 	local function statsFor(item: Item): string
 		local lines: { string } = {}
-		local function add(label: string, value: string)
-			table.insert(lines, string.format('<font color="#92A49D">%s</font>  %s', label, value))
+		local function add(name: string, value: string)
+			table.insert(lines, string.format('<font color="#E6E6E6">%s</font>  %s', name, value))
 		end
 		if item.kind == "Transport" then
 			local pipe = PipeDefinitions.Types[item.id]
 			add("Carries", pipe.Carries)
-			if pipe.Ready then
-				add(
-					"Price",
-					string.format("%d credits per tile, paid as you lay it", pipe.Cost or 0)
-				)
-			else
-				add("Status", "Arrives with the energy update")
-			end
+			add("Speed", string.format("%d studs per second", pipe.StudsPerSecond or 8))
 			return table.concat(lines, "\n")
 		end
 		local definition = MachineDefinitions[item.id]
 		if definition == nil then
 			return ""
 		end
-		add("Price", string.format("%s credits", UITheme.formatNumber(definition.Cost or 0)))
 		add("Footprint", string.format("%d x %d studs", definition.Size.X, definition.Size.Z))
 		local kind = definition.Kind
 		if (definition.PowerKW or 0) > 0 then
-			add("Power use", string.format("%d kW while working", definition.PowerKW))
+			add("Power", string.format("uses %d kW while working", definition.PowerKW))
 		end
 		if kind == "Processor" then
-			add(
-				"Input",
-				string.format("%d %s", definition.InputPerCycle, itemName(definition.InputItem))
-			)
+			if definition.InputItem then
+				add(
+					"Input",
+					string.format("%d %s", definition.InputPerCycle, itemName(definition.InputItem))
+				)
+			end
 			add(
 				"Output",
 				string.format("%d %s", definition.OutputPerCycle, itemName(definition.OutputItem))
@@ -1738,7 +1431,7 @@ do
 					add(
 						if port.Direction == "In" then "Also takes" else "Also makes",
 						string.format(
-							"%d %s (%s port)",
+							"%d %s (%s)",
 							port.PerCycle or 1,
 							itemName(port.Item),
 							string.lower(port.Medium or "item")
@@ -1761,16 +1454,12 @@ do
 					string.format("%d credits per cycle", definition.OperatingCostPerCycle)
 				)
 			end
-			add(
-				"Buffers",
-				string.format("in %d, out %d", definition.InputCapacity, definition.OutputCapacity)
-			)
 		elseif kind == "Storage" then
-			add("Holds", string.format("%d bundles of one straw type", definition.Capacity))
+			add("Holds", string.format("%d units", definition.Capacity))
 		elseif kind == "Sink" then
 			local prices = {}
-			for itemId, price in definition.Prices or {} do
-				table.insert(prices, string.format("%s %d", itemName(itemId), price))
+			for itemId, value in definition.Prices or {} do
+				table.insert(prices, string.format("%s %d", itemName(itemId), value))
 			end
 			table.sort(prices)
 			add("Buys", table.concat(prices, ", "))
@@ -1778,70 +1467,23 @@ do
 			add("Truck", "Carries 8 bundles a trip from Farm B or C")
 			add("Placement", "Beside a road")
 		elseif kind == "Farm" then
-			local action = if definition.FarmAction == "Plant"
-				then "Plants an empty row"
-				elseif definition.FarmAction == "Harvest" then "Harvests a ripe row"
-				else "Bales one straw sheaf"
-			add("Work", string.format("%s every %d s", action, definition.WorkSeconds))
 			add(
 				"Placement",
 				string.format("Beside a paddy, within %d studs", definition.PaddyReach or 12)
 			)
-			if definition.Capacity then
-				add("Holds", string.format("%d bundles until you take them", definition.Capacity))
-			end
 		elseif kind == "Generator" then
 			add("Makes", string.format("%d kW", definition.PowerOutputKW))
-			if definition.Fuel == "Sun" then
-				add("Fuel", "Sunlight, dimmed by smog")
-			elseif definition.Fuel == "Crank" then
-				add(
-					"Fuel",
-					string.format(
-						"You: hold E for %d s of power, up to %d s banked",
-						definition.CrankSeconds,
-						definition.MaxCrankSeconds
-					)
-				)
-			elseif definition.Fuel == "Diesel" then
-				add(
-					"Fuel",
-					string.format(
-						"Diesel, %d credits every %d s",
-						definition.OperatingCostPerCycle,
-						definition.CycleSeconds
-					)
-				)
-			else
-				add(
-					"Fuel",
-					string.format(
-						"%d %s every %d s (conveyor in)",
-						definition.InputPerCycle,
-						itemName(definition.InputItem),
-						definition.CycleSeconds
-					)
-				)
-			end
 			if definition.SmogPerCycle then
-				add("Smog", "Adds a little to the district smog while it runs")
+				add("Smog", "A little while it runs")
 			end
-			add("Reach", string.format("%d studs to poles and machines", definition.Reach))
 		elseif kind == "Battery" then
 			add("Stores", string.format("%s kJ", UITheme.formatNumber(definition.CapacityKJ)))
 			add("Rate", string.format("%d kW in or out", definition.RateKW))
-			add("Reach", string.format("%d studs", definition.Reach))
 		elseif kind == "Pole" then
-			add("Reach", string.format("%d studs to poles and machines", definition.Reach))
+			add("Coils", string.format("%d, wire each with the wrench (V)", definition.Coils or 2))
+			add("Wire reach", string.format("%d studs", definition.Reach))
 		elseif kind == "Office" then
 			add("Staff", string.format("Up to %d engineers", ResearchDefinitions.MaxEngineers))
-			add(
-				"Research",
-				string.format(
-					"1 point per engineer every %d s",
-					ResearchDefinitions.SecondsPerPoint
-				)
-			)
 		end
 		if definition.MaxPerPlayer then
 			add("Limit", string.format("%d per player", definition.MaxPerPlayer))
@@ -1853,436 +1495,212 @@ do
 		return table.concat(lines, "\n")
 	end
 
-	local function refreshIndex()
+	local function refreshDetails()
 		local item = selectedItem
 		if item == nil then
-			indexName.Text = "Pick an item"
-			indexStatus.Text = ""
-			indexStats.Text =
-				"Click any card on the left to see what it does, what it costs, and how fast it works."
-			indexBlurb.Text = ""
-			buyRow.Visible = false
+			cardName.Text = "Build"
+			job.Text = "Pick an item on the right to see what it does."
+			stats.Text = ""
+			price.Text = ""
+			place.Visible = false
 			return
 		end
-		indexName.Text = item.name
+		cardName.Text = item.name
 		local info = ITEM_INFO[item.id]
-		indexBlurb.Text = if info
-			then info.recipe .. ". " .. info.detail .. "."
-			else (item.blurb or "")
-		indexStats.Text = statsFor(item)
+		job.Text = if info then info.recipe .. "\n" .. info.detail else (item.blurb or "")
+		stats.Text = statsFor(item)
+		place.Visible = true
 		local locked = itemLocked(item)
-		local definition = if item.kind == "Machine" then MachineDefinitions[item.id] else nil
-		if definition then
+		local free = freeCount(item)
+		if item.kind == "Machine" then
+			local definition = MachineDefinitions[item.id]
 			local research = researchNeeded(definition)
-			indexStatus.Text = if research
-				then string.format("Research %s at the office", string.lower(research))
+			price.Text = if research
+				then "Research " .. string.lower(research)
 				elseif locked then "Unlocks after your first sale"
-				else "Available"
-			indexStatus.TextColor3 = if locked then Colors.Muted else Colors.Good
-			buyRow.Visible = true
-			local count = ownedCount(item.id)
-			ownedLabel.Text = string.format("In inventory: %d", count)
-			buyOne.Text = string.format("BUY 1  %s", UITheme.formatNumber(definition.Cost))
-			buyFive.Text = "BUY 5"
-			for _, button in { buyOne, buyFive } do
-				button.Active = not locked
-				button.AutoButtonColor = not locked
-				button.BackgroundColor3 = if locked then Colors.Track else Colors.Teal
-			end
+				elseif free > 0 then string.format("Free (%d left)", free)
+				else UITheme.formatNumber(definition.Cost) .. " credits"
+			price.TextColor3 = if locked
+				then Colors.Danger
+				elseif free > 0 or credits() >= definition.Cost then Colors.Good
+				else Colors.Danger
 		else
-			indexStatus.Text = if locked
-				then "Coming later"
-				else "Laid tile by tile from the hotbar"
-			indexStatus.TextColor3 = if locked then Colors.Muted else Colors.Good
-			buyRow.Visible = false
+			price.Text =
+				string.format("%d credits per tile", PipeDefinitions.Types[item.id].Cost or 0)
+			price.TextColor3 = Colors.Good
 		end
+		place.BackgroundColor3 = if locked then Colors.Track else Colors.Good
+		place.AutoButtonColor = not locked
 	end
 
 	local function selectItem(item: Item)
 		selectedItem = item
-		indexView:ClearAllChildren()
-		local _, camera, focus, radius = createViewport(indexView, previewModelFor(item))
-		indexPreview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) }
-		framePreview(indexPreview :: Preview)
-		raise(indexPane)
-		for _, card in shopCards do
-			local chosen = card.item == item
-			card.stroke.Color = if chosen then Colors.Gold else Colors.Outline
-			card.stroke.Transparency = if chosen then 0 else 0.88
-			card.stroke.Thickness = if chosen then 2 else 1
+		cardView:ClearAllChildren()
+		local viewport, camera, focus, radius = createViewport(cardView, previewModelFor(item))
+		viewport.ZIndex = 21
+		cardPreview = { camera = camera, focus = focus, radius = radius, angle = math.rad(40) }
+		framePreview(cardPreview :: Preview)
+		for _, tile in tiles do
+			local chosen = tile.item == item
+			tile.stroke.Color = if chosen then Colors.Text else Colors.Outline
+			tile.stroke.Transparency = if chosen then 0 else 0.85
+			tile.stroke.Thickness = if chosen then 2 else 1
 		end
-		refreshIndex()
+		refreshDetails()
 	end
 
-	local function buy(count: number)
-		local item = selectedItem
-		if item == nil or item.kind ~= "Machine" or itemLocked(item) then
-			return
+	local function matches(item: Item): boolean
+		if searchText ~= "" then
+			return string.find(string.lower(item.name), searchText, 1, true) ~= nil
 		end
-		local ok, message = buyRemote:InvokeServer(item.id, count)
-		showMessage(
-			if typeof(message) == "string"
-				then message
-				else if ok then "Bought." else "Could not buy that."
-		)
-		refreshIndex()
-	end
-	buyOne.Activated:Connect(function()
-		buy(1)
-	end)
-	buyFive.Activated:Connect(function()
-		buy(5)
-	end)
-	raise(shop)
-
-	-- Inventory -----------------------------------------------------------------------------------
-
-	local inventory, inventoryClose = createPanel("Inventory", "INVENTORY", "")
-	-- Only machine cards live here, so the panel is shorter than the shop; it scrolls when full.
-	inventory.Size = UDim2.fromOffset(PANEL_WIDTH, 250)
-	local inventoryList =
-		createScroller(inventory, "List", UDim2.new(1, 0, 1, -42), UDim2.fromOffset(0, 42))
-
-	local storageGrid = Instance.new("Frame")
-	storageGrid.Name = "StorageGrid"
-	storageGrid.Size = UDim2.fromScale(1, 0)
-	storageGrid.AutomaticSize = Enum.AutomaticSize.Y
-	storageGrid.BackgroundTransparency = 1
-	storageGrid.LayoutOrder = 2
-	storageGrid.Parent = inventoryList
-	local storageLayout = Instance.new("UIGridLayout")
-	storageLayout.CellSize = UDim2.fromOffset(76, 116)
-	storageLayout.CellPadding = UDim2.fromOffset(8, 8)
-	storageLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	storageLayout.Parent = storageGrid
-	local storageEmpty = UITheme.text(inventoryList, {
-		name = "StorageEmpty",
-		text = "No machines yet.",
-		size = UDim2.fromScale(1, 0),
-		textSize = 12,
-		color = Colors.Muted,
-		wrap = true,
-		order = 3,
-	})
-	storageEmpty.AutomaticSize = Enum.AutomaticSize.Y
-
-	type StorageCard = { card: Card, sell: TextButton }
-	local storageCards: { [string]: StorageCard } = {}
-
-	for order, item in ITEMS do
-		if item.kind ~= "Machine" then
-			continue
-		end
-		local card = createCard(storageGrid, item, order)
-		card.button.Size = UDim2.fromOffset(76, 116)
-		local sell = Instance.new("TextButton")
-		sell.Name = "Sell"
-		sell.AnchorPoint = Vector2.new(0.5, 1)
-		sell.Position = UDim2.new(0.5, 0, 1, -4)
-		sell.Size = UDim2.new(1, -10, 0, 20)
-		sell.BackgroundColor3 = Colors.Hover
-		sell.FontFace = Fonts.Heavy
-		sell.TextSize = 10
-		sell.TextColor3 = Colors.Text
-		sell.AutoButtonColor = true
-		sell.Parent = card.button
-		UITheme.corner(sell, 6)
-		-- The name sits above the sell button on these taller cards.
-		local name = card.button:FindFirstChild("Name")
-		if name and name:IsA("TextLabel") then
-			name.Position = UDim2.new(0, 3, 1, -46)
-		end
-		sell.Activated:Connect(function()
-			local ok, message = sellRemote:InvokeServer(item.id)
-			showMessage(
-				if typeof(message) == "string"
-					then message
-					else if ok then "Sold." else "Could not sell that."
-			)
-		end)
-		storageCards[item.id] = { card = card, sell = sell }
-	end
-	raise(inventory)
-
-	local function refreshInventory()
-		local refund = if isUnlocked() then 0.7 else 1
-		local any = false
-		for definitionId, entry in storageCards do
-			local count = ownedCount(definitionId)
-			entry.card.button.Visible = count > 0
-			any = any or count > 0
-			entry.card.cost.Text = "x" .. count
-			entry.card.cost.TextColor3 = Colors.Good
-			entry.sell.Text = string.format(
-				"SELL %s",
-				UITheme.formatNumber(math.floor(MachineDefinitions[definitionId].Cost * refund))
-			)
-		end
-		storageEmpty.Visible = not any
+		return (item.tier or 1) == selectedTier
 	end
 
-	local function refreshCards()
-		for _, card in shopCards do
-			local slotIndex = table.find(hotbarItems, card.item.key)
-			card.badge.Visible = slotIndex ~= nil
-			card.badge.Text = if slotIndex then tostring(slotIndex) else ""
-			card.lockOverlay.Visible = itemLocked(card.item)
+	local function refresh()
+		for _, tile in tiles do
+			local locked = itemLocked(tile.item)
+			tile.lock.Visible = locked
+			tile.lock.Text = if tile.item.kind == "Machine"
+					and researchNeeded(MachineDefinitions[tile.item.id])
+				then "RESEARCH"
+				else "LOCKED"
+			local free = freeCount(tile.item)
+			tile.count.Text = tostring(free)
+			tile.button.Visible = matches(tile.item)
 		end
-		for _, entry in storageCards do
-			local slotIndex = table.find(hotbarItems, entry.card.item.key)
-			entry.card.badge.Visible = slotIndex ~= nil
-			entry.card.badge.Text = if slotIndex then tostring(slotIndex) else ""
-		end
-		if openPanel == "Shop" then
-			refreshIndex()
-		elseif openPanel == "Inventory" then
-			refreshInventory()
-		end
-	end
-
-	local function applyHotbar()
-		for slotIndex, slot in slots do
-			setSlotItem(slot, hotbarItems[slotIndex])
-		end
-		refreshCards()
-		refreshPanel()
-	end
-
-	-- Puts an item on a slot. An item already on the hotbar moves, swapping with what was there.
-	local function assignToSlot(slotIndex: number, itemKey: string, fromIndex: number?)
-		local origin = fromIndex or table.find(hotbarItems, itemKey)
-		if origin == slotIndex then
-			return
-		end
-		if origin then
-			hotbarItems[origin] = hotbarItems[slotIndex]
-		end
-		hotbarItems[slotIndex] = itemKey
-		applyHotbar()
-	end
-
-	local function clearSlot(slotIndex: number)
-		hotbarItems[slotIndex] = ""
-		applyHotbar()
-	end
-
-	local function setTool(tool: ToolSlot, active: boolean)
-		tool.stroke.Color = if active then Colors.Gold else Colors.Outline
-		tool.stroke.Transparency = if active then 0 else 0.88
-		tool.stroke.Thickness = if active then 2 else 1
-	end
-
-	local function setOpenPanel(name: string?)
-		openPanel = name
-		shop.Visible = name == "Shop"
-		inventory.Visible = name == "Inventory"
-		hoveredCard = nil
-		if name then
-			setMode("None")
-			showTooltip(nil)
-			refreshCards()
-			if name == "Shop" and selectedItem == nil then
-				refreshIndex()
-			end
-		end
-		setTool(shopTool, name == "Shop")
-		setTool(bagTool, name == "Inventory")
-	end
-
-	local function togglePanel(name: string)
-		setOpenPanel(if openPanel == name then nil else name)
-	end
-
-	-- Ownership, carried straw, and research all change what the inventory and index show.
-	player.AttributeChanged:Connect(function(attribute)
-		if openPanel == nil then
-			return
-		end
-		if
-			string.sub(attribute, 1, 6) == "Owned_"
-			or attribute == "StrawBundles"
-			or attribute == "Engineers"
-			or attribute == "Credits"
-			or attribute == "TutorialComplete"
-		then
-			refreshCards()
-		end
-	end)
-
-	-- Dragging --------------------------------------------------------------------------------------
-
-	type Drag = { itemKey: string, fromIndex: number?, start: Vector2, ghost: Frame?, card: Card? }
-	local drag: Drag? = nil
-
-	local function guiMouse(): Vector2
-		return UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
-	end
-
-	local function inside(gui: GuiObject, point: Vector2): boolean
-		local position, size = gui.AbsolutePosition, gui.AbsoluteSize
-		return point.X >= position.X
-			and point.X <= position.X + size.X
-			and point.Y >= position.Y
-			and point.Y <= position.Y + size.Y
-	end
-
-	local function makeGhost(itemKey: string): Frame
-		local item = ITEM_BY_KEY[itemKey]
-		local ghost = Instance.new("Frame")
-		ghost.Name = "DragGhost"
-		ghost.AnchorPoint = Vector2.new(0.5, 0.5)
-		ghost.Size = UDim2.fromOffset(72, 72)
-		ghost.BackgroundColor3 = Colors.Hover
-		ghost.BackgroundTransparency = 0.15
-		ghost.ZIndex = 60
-		ghost.Parent = screenGui
-		UITheme.corner(ghost, 12)
-		UITheme.outline(ghost, Colors.Gold, 0, 2)
-		local _, camera, focus, radius = buildItemVisual(ghost, item)
-		framePreview({ camera = camera, focus = focus, radius = radius, angle = math.rad(40) })
-		for _, descendant in ghost:GetDescendants() do
-			if descendant:IsA("GuiObject") then
-				descendant.ZIndex = 61
-			end
-		end
-		return ghost
-	end
-
-	local function beginDrag(itemKey: string, fromIndex: number?, card: Card?)
-		if itemKey == "" then
-			return
-		end
-		drag = {
-			itemKey = itemKey,
-			fromIndex = fromIndex,
-			start = guiMouse(),
-			ghost = nil,
-			card = card,
-		}
-	end
-
-	local function finishDrag()
-		local current = drag
-		drag = nil
-		if current == nil then
-			return
-		end
-		if current.ghost == nil then
-			-- A click without moving: in the shop it opens the item's details.
-			local card = current.card
-			if card and openPanel == "Shop" then
-				selectItem(card.item)
-			elseif current.fromIndex == nil then
-				local empty = table.find(hotbarItems, "")
-				if table.find(hotbarItems, current.itemKey) then
-					showMessage("That item is already on your hotbar.")
-				elseif empty then
-					assignToSlot(empty, current.itemKey)
-				else
-					showMessage("Your hotbar is full. Drag the item onto a slot to replace it.")
+		for name, section in sections do
+			local any = false
+			for _, tile in section.tiles do
+				if tile.button.Visible then
+					any = true
 				end
 			end
-			return
+			section.header.Visible = any
+			section.grid.Visible = any and not collapsed[name]
+			section.arrow.Rotation = if collapsed[name] then -90 else 0
 		end
-		current.ghost:Destroy()
-		local point = guiMouse()
-		for slotIndex, slot in slots do
-			if inside(slot.button, point) then
-				assignToSlot(slotIndex, current.itemKey, current.fromIndex)
-				return
+		for tier, button in tierButtons do
+			local chosen = tier == selectedTier and searchText == ""
+			button.BackgroundColor3 = if chosen then Colors.Hover else Colors.Raised
+			local stroke = button:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Transparency = if chosen then 0 else 0.85
 			end
 		end
-		if current.fromIndex and not inside(hotbar, point) then
-			clearSlot(current.fromIndex)
+		refreshDetails()
+	end
+
+	search:GetPropertyChangedSignal("Text"):Connect(function()
+		searchText = string.lower(search.Text)
+		refresh()
+	end)
+
+	local function setOpen(open: boolean)
+		isOpen = open
+		menu.Visible = open
+		hoveredItem = nil
+		setTool(buildTool, open)
+		if open then
+			setMode("None")
+			if selectedItem == nil then
+				local first = ITEMS[1]
+				if first then
+					selectItem(first)
+				end
+			end
+			refresh()
+		else
+			search:ReleaseFocus()
 		end
 	end
+
+	local function startPlacing()
+		local item = selectedItem
+		if item == nil or itemLocked(item) then
+			if item then
+				showMessage(price.Text)
+			end
+			return
+		end
+		setOpen(false)
+		if item.kind == "Transport" then
+			beginTransport(item.id)
+		else
+			setMode("Place", item.id)
+		end
+	end
+	place.Activated:Connect(startPlacing)
+	close.Activated:Connect(function()
+		setOpen(false)
+	end)
+
+	player.AttributeChanged:Connect(function(attribute)
+		if
+			isOpen
+			and (
+				string.sub(attribute, 1, 6) == "Owned_"
+				or attribute == "Credits"
+				or string.sub(attribute, 1, 9) == "Research_"
+				or attribute == "TutorialComplete"
+			)
+		then
+			refresh()
+		end
+	end)
 
 	RunService.RenderStepped:Connect(function(deltaTime: number)
-		local current = drag
-		if current then
-			local point = guiMouse()
-			if current.ghost == nil and (point - current.start).Magnitude > 6 then
-				current.ghost = makeGhost(current.itemKey)
-			end
-			if current.ghost then
-				current.ghost.Position = UDim2.fromOffset(point.X, point.Y)
+		if not isOpen then
+			return
+		end
+		for _, tile in tiles do
+			if tile.item == hoveredItem then
+				tile.preview.angle += deltaTime * 0.9
+				framePreview(tile.preview)
 			end
 		end
-		if openPanel == "Shop" then
-			for _, card in shopCards do
-				if card.item == hoveredCard then
-					card.preview.angle += deltaTime * 0.9
-					framePreview(card.preview)
-				end
-			end
-			local preview = indexPreview
-			if preview then
-				preview.angle += deltaTime * 0.6
-				framePreview(preview)
-			end
+		local preview = cardPreview
+		if preview then
+			preview.angle += deltaTime * 0.6
+			framePreview(preview)
 		end
 	end)
 
-	local function hookCard(card: Card)
-		card.button.MouseEnter:Connect(function()
-			hoveredCard = card.item
+	for _, tile in tiles do
+		tile.button.MouseEnter:Connect(function()
+			hoveredItem = tile.item
 		end)
-		card.button.MouseLeave:Connect(function()
-			if hoveredCard == card.item then
-				hoveredCard = nil
+		tile.button.MouseLeave:Connect(function()
+			if hoveredItem == tile.item then
+				hoveredItem = nil
 			end
 		end)
-		card.button.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 then
-				beginDrag(card.item.key, nil, card)
-			end
-		end)
-	end
-	for _, card in shopCards do
-		hookCard(card)
-	end
-	for _, entry in storageCards do
-		hookCard(entry.card)
-	end
-	for slotIndex, slot in slots do
-		slot.button.InputBegan:Connect(function(input)
-			-- Rearranging the hotbar only happens while a panel is open, so a normal click on a slot
-			-- still just selects it.
-			if openPanel and input.UserInputType == Enum.UserInputType.MouseButton1 then
-				beginDrag(slot.itemKey, slotIndex)
+		tile.button.Activated:Connect(function()
+			if selectedItem == tile.item then
+				startPlacing()
+			else
+				selectItem(tile.item)
 			end
 		end)
 	end
-	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			finishDrag()
-		end
-	end)
-	shopClose.Activated:Connect(function()
-		setOpenPanel(nil)
-	end)
-	inventoryClose.Activated:Connect(function()
-		setOpenPanel(nil)
-	end)
-	shopTool.button.Activated:Connect(function()
-		togglePanel("Shop")
-	end)
-	bagTool.button.Activated:Connect(function()
-		togglePanel("Inventory")
+	buildTool.button.Activated:Connect(function()
+		setOpen(not isOpen)
 	end)
 
-	panels.toggle = togglePanel
+	panels.toggle = function()
+		setOpen(not isOpen)
+	end
 	panels.close = function()
-		setOpenPanel(nil)
+		setOpen(false)
 	end
 	panels.isOpen = function(): boolean
-		return openPanel ~= nil
+		return isOpen
 	end
-	panels.hovered = function(): Item?
-		return hoveredCard
+	panels.focusSearch = function()
+		search:CaptureFocus()
 	end
-	panels.assign = assignToSlot
-	panels.refreshCards = refreshCards
+	panels.startPlacing = startPlacing
+	panels.refresh = refresh
+	panels.refreshCards = refresh
 end
 
 -- Belt requests run one at a time in order, so a fast drag never lands out of sequence.
@@ -2524,6 +1942,160 @@ local function updateDeleteTarget()
 	end
 end
 
+-- Wrench ---------------------------------------------------------------------------------------
+-- Strings power wires like Industrialist's wrench: click one of a pole's two coils, then a
+-- generator, battery or machine (or another coil). Clicking the same two ends again takes the wire
+-- down. The server checks ownership, reach and coils (PowerService).
+
+do
+	local powerWireRemote = remotes:WaitForChild("PowerWire") :: RemoteFunction
+
+	type WireEnd = { id: number, coil: number?, part: BasePart, model: Model }
+	local first: WireEnd? = nil
+	local hovered: WireEnd? = nil
+	local busy = false
+
+	local function newHighlight(name: string, color: Color3): Highlight
+		local highlight = Instance.new("Highlight")
+		highlight.Name = name
+		highlight.FillColor = color
+		highlight.OutlineColor = color
+		highlight.FillTransparency = 0.5
+		highlight.OutlineTransparency = 0
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		return highlight
+	end
+	local hoverHighlight = newHighlight("WireTarget", Colors.Good)
+	local firstHighlight = newHighlight("WireStart", Colors.Gold)
+
+	local preview = Instance.new("Part")
+	preview.Name = "WirePreview"
+	preview.Anchored = true
+	preview.CanCollide = false
+	preview.CanQuery = false
+	preview.CanTouch = false
+	preview.CastShadow = false
+	preview.Material = Enum.Material.Neon
+	preview.Color = Colors.Gold
+
+	local function mark(highlight: Highlight, target: WireEnd?)
+		local adornee: Instance? = if target
+			then (if target.coil then target.part else target.model)
+			else nil
+		highlight.Adornee = adornee
+		highlight.Parent = adornee
+	end
+
+	local function endPosition(target: WireEnd): Vector3
+		if target.coil then
+			return target.part.Position
+		end
+		local marker = target.model:FindFirstChild("WireTop", true)
+		if marker and marker:IsA("BasePart") then
+			return marker.Position
+		end
+		return target.part.Position + Vector3.new(0, target.part.Size.Y / 2, 0)
+	end
+
+	-- What a click on this part would wire to, or why it cannot.
+	local function resolve(instance: Instance?): (WireEnd?, string?)
+		local coil = if instance then instance:GetAttribute("Coil") else nil
+		local current = instance
+		while current and current ~= world do
+			if current:IsA("Model") and current:GetAttribute("MachineId") ~= nil then
+				break
+			end
+			current = current.Parent
+		end
+		if current == nil or current == world or not current:IsA("Model") then
+			return nil, nil
+		end
+		local model = current :: Model
+		if model:GetAttribute("OwnerUserId") ~= player.UserId then
+			return nil, nil
+		end
+		local id = model:GetAttribute("MachineId") :: number
+		local definition = MachineDefinitions[model:GetAttribute("DefinitionId") :: string]
+		if definition == nil then
+			return nil, nil
+		end
+		if definition.Kind == "Pole" then
+			if typeof(coil) == "number" and instance and instance:IsA("BasePart") then
+				return { id = id, coil = coil, part = instance, model = model }, nil
+			end
+			return nil, "Click one of the pole's two coils."
+		end
+		local powered = definition.Kind == "Generator"
+			or definition.Kind == "Battery"
+			or (definition.PowerKW or 0) > 0
+		local body = model.PrimaryPart
+		if powered and body then
+			return { id = id, coil = nil, part = body, model = model }, nil
+		end
+		return nil, definition.DisplayName .. " does not use power."
+	end
+
+	wrench.update = function()
+		local result = mouseRaycast()
+		local target, why = resolve(if result then result.Instance else nil)
+		if hovered == nil or target == nil or hovered.part ~= target.part then
+			hovered = target
+			mark(hoverHighlight, target)
+		end
+		local start = first
+		if start then
+			local from = endPosition(start)
+			local to = if target then endPosition(target) elseif result then result.Position else nil
+			if to and (to - from).Magnitude > 0.1 then
+				preview.Size = Vector3.new(0.18, 0.18, (to - from).Magnitude)
+				preview.CFrame = CFrame.lookAt((from + to) / 2, to)
+				preview.Parent = workspace
+			else
+				preview.Parent = nil
+			end
+		end
+		if why and os.clock() - toastShownAt >= 3 then
+			setToast(why, true)
+		end
+	end
+
+	wrench.cancel = function()
+		first = nil
+		mark(firstHighlight, nil)
+		preview.Parent = nil
+	end
+
+	wrench.click = function()
+		local target = hovered
+		if target == nil or busy then
+			return
+		end
+		local start = first
+		if start == nil then
+			first = target
+			mark(firstHighlight, target)
+			showMessage("Now click the other end of the wire.")
+			return
+		end
+		wrench.cancel()
+		busy = true
+		task.spawn(function()
+			local _, message =
+				powerWireRemote:InvokeServer(start.id, start.coil, target.id, target.coil)
+			busy = false
+			if typeof(message) == "string" then
+				showMessage(message)
+			end
+		end)
+	end
+
+	wrench.clear = function()
+		wrench.cancel()
+		hovered = nil
+		mark(hoverHighlight, nil)
+	end
+end
+
 -- Lays tiles from the last cell to the hovered cell, one neighbour at a time, turning the previous
 -- tile so the line bends with the drag.
 local function extendDrag(toX: number, toZ: number)
@@ -2599,15 +2171,11 @@ local function updateBeltGhost()
 	tintBeltGhost(if overlapsAny(rect, collectBlockers()) then INVALID_COLOR else VALID_COLOR)
 end
 
-RunService.RenderStepped:Connect(function(deltaTime: number)
-	-- Slowly turn the hovered or selected preview so the slot feels alive.
-	for _, slot in slots do
-		if slot == hoveredSlot or isSelected(slot) then
-			slot.angle += deltaTime * 0.9
-			framePreview(slot)
-		end
+RunService.RenderStepped:Connect(function()
+	if mode == "Wire" then
+		wrench.update()
+		return
 	end
-
 	if mode == "Delete" then
 		updateDeleteTarget()
 		return
@@ -2721,24 +2289,12 @@ local function toggleGrid()
 	refreshPanel()
 end
 
-for _, slot in slots do
-	slot.button.MouseEnter:Connect(function()
-		hoveredSlot = slot
-		showTooltip(slot)
-		refreshPanel()
-	end)
-	slot.button.MouseLeave:Connect(function()
-		if hoveredSlot == slot then
-			hoveredSlot = nil
-			showTooltip(nil)
-			refreshPanel()
-		end
-	end)
-	slot.button.Activated:Connect(function()
-		activateSlot(slot)
-	end)
+local function toggleWrench()
+	setMode(if mode == "Wire" then "None" else "Wire")
 end
+
 gridTool.button.Activated:Connect(toggleGrid)
+wrenchTool.button.Activated:Connect(toggleWrench)
 deleteTool.button.Activated:Connect(function()
 	setMode(if mode == "Delete" then "None" else "Delete")
 end)
@@ -2747,27 +2303,27 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
 		return
 	end
-	local slotIndex = table.find(SLOT_KEYS, input.KeyCode)
 	local cell = hoveredCell
-	local card = panels.hovered()
 	local panelOpen = panels.isOpen()
-	if input.KeyCode == Enum.KeyCode.B then
-		panels.toggle("Inventory")
-	elseif input.KeyCode == Enum.KeyCode.M then
-		panels.toggle("Shop")
-	elseif slotIndex and panelOpen then
-		-- Hover a shop or inventory item and press a number to put it on that slot.
-		if card then
-			panels.assign(slotIndex, card.key)
-		end
+	-- Tool keys: 1 build menu, 2 wrench, 3 delete, 4 grid (B, V, X and G also work).
+	if input.KeyCode == Enum.KeyCode.One or input.KeyCode == Enum.KeyCode.B then
+		panels.toggle()
+	elseif panelOpen and input.KeyCode == Enum.KeyCode.R then
+		panels.focusSearch()
+	elseif panelOpen and input.KeyCode == Enum.KeyCode.T then
+		panels.startPlacing()
 	elseif
 		panelOpen and (input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.Escape)
 	then
 		panels.close()
 	elseif panelOpen then
 		return
-	elseif slotIndex and slots[slotIndex] then
-		activateSlot(slots[slotIndex])
+	elseif input.KeyCode == Enum.KeyCode.Two or input.KeyCode == Enum.KeyCode.V then
+		toggleWrench()
+	elseif input.KeyCode == Enum.KeyCode.Three or input.KeyCode == Enum.KeyCode.X then
+		setMode(if mode == "Delete" then "None" else "Delete")
+	elseif input.KeyCode == Enum.KeyCode.Four or input.KeyCode == Enum.KeyCode.G then
+		toggleGrid()
 	elseif input.KeyCode == Enum.KeyCode.R and mode == "Place" then
 		rotationSteps = (rotationSteps + 1) % 4
 		refreshPanel()
@@ -2777,10 +2333,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		beltDir = (current + 1) % 4
 		manualTurn = true
 		refreshPanel()
-	elseif input.KeyCode == Enum.KeyCode.G then
-		toggleGrid()
-	elseif input.KeyCode == Enum.KeyCode.X then
-		setMode(if mode == "Delete" then "None" else "Delete")
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		setMode("None")
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -2798,7 +2350,11 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			lastCell = { cell[1], cell[2] }
 			placeTile(cell[1], cell[2])
 			refreshPanel()
+		elseif mode == "Wire" then
+			wrench.click()
 		end
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 and mode == "Wire" then
+		wrench.cancel()
 	elseif
 		input.UserInputType == Enum.UserInputType.MouseButton2
 		and mode == "Conveyor"
@@ -2830,12 +2386,9 @@ end
 for _, attribute in { "TutorialComplete", "Credits" } do
 	player:GetAttributeChangedSignal(attribute):Connect(function()
 		refreshPanel()
-		if hoveredSlot then
-			showTooltip(hoveredSlot)
-		end
 	end)
 end
--- A finished research project unlocks machines on the hotbar and in the inventory.
+-- A finished research project unlocks machines in the build menu.
 player.AttributeChanged:Connect(function(attribute)
 	if string.sub(attribute, 1, 9) == "Research_" then
 		refreshPanel()

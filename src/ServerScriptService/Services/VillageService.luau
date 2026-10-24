@@ -312,7 +312,7 @@ function VillageService:Initialize(
 				say(player, LOAN_LINE)
 				machineService:Notify(
 					player,
-					"The cooperative lent you a dryer. It is in your inventory (B)."
+					"The cooperative lent you a dryer. Place it free from the build menu (1)."
 				)
 			end
 		end)

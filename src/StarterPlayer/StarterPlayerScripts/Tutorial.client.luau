@@ -43,12 +43,12 @@ local steps: { Step } = {
 	},
 	{
 		title = "Build a dryer",
-		detail = "Pick the dryer on the hotbar and click the factory plot.",
+		detail = "Open the build menu (1), pick the dryer, press Start Placing and click the factory plot.",
 		done = false,
 	},
 	{
 		title = "Power your factory",
-		detail = "Machines need power. Place the solar panels or hand crank from your bag (B) beside the dryer. Poles carry power further.",
+		detail = "Place the free solar panels and a power pole from the build menu (1). Take the wrench (2): click a pole coil, then a panel; click the coil again, then the dryer.",
 		done = false,
 	},
 	{
@@ -58,7 +58,7 @@ local steps: { Step } = {
 	},
 	{
 		title = "Link them with belts",
-		detail = "Pick the conveyor, then drag from each OUT port to the next IN port.",
+		detail = "Pick the conveyor in the build menu (Logistics), then drag from each OUT port to the next IN port.",
 		done = false,
 	},
 	{
@@ -264,8 +264,8 @@ local function scanProduction()
 	if owned.Dryer then
 		complete(3)
 	end
-	local supply = player:GetAttribute("PowerSupplyKW")
-	if typeof(supply) == "number" and supply > 0 and owned.Dryer then
+	local wired = player:GetAttribute("Wires")
+	if typeof(wired) == "number" and wired >= 2 and owned.Dryer then
 		complete(4)
 	end
 	if owned.Shredder and owned.PelletMill then

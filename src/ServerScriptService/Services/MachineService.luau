@@ -30,7 +30,6 @@ local ProductionLine = require(Simulation:WaitForChild("ProductionLine"))
 local MachineService = {}
 
 local TICK_SECONDS = 0.2
-local NORMAL_REFUND_RATE = 0.7
 -- Placed so its OUT port lines up with a conveyor cell.
 local INTAKE_POSITION = Vector3.new(-60, 1.5, 92)
 local ROAD_NAMES = { "MainRoad", "FactoryRoad" }
@@ -51,7 +50,8 @@ type MachineRecord = {
 	layout: SavedMachine?,
 }
 
-export type SavedMachine = { id: string, x: number, y: number, z: number, rot: number }
+export type SavedMachine =
+	{ id: string, x: number, y: number, z: number, rot: number, paid: number? }
 export type SavedTile = { x: number, z: number, dir: number, medium: string }
 
 -- Hooks another service registers for a machine Kind.
@@ -357,10 +357,9 @@ local function removeBelt(linkId: number)
 	end
 end
 
--- Inventory: machines a player has bought but not placed. Stored as Owned_<DefinitionId> player
--- attributes, so the client inventory and hotbar can show the counts.
-local MAX_BUY = 10
-
+-- Free stock: machines a player holds without paying, the starting power kit. Stored as
+-- Owned_<DefinitionId> player attributes, shown as the count on build menu tiles, and used before
+-- any credits are spent. There is no shop inventory: placing pays, removing pays it all back.
 local function owned(player: Player, definitionId: string): number
 	local value = player:GetAttribute("Owned_" .. definitionId)
 	return if typeof(value) == "number" then value else 0
@@ -368,85 +367,6 @@ end
 
 local function setOwned(player: Player, definitionId: string, count: number)
 	player:SetAttribute("Owned_" .. definitionId, math.max(0, count))
-end
-
-local function refundRate(player: Player): number
-	-- Spec 3.2: full value back during the tutorial, 70 percent afterwards.
-	return if player:GetAttribute("TutorialComplete") then NORMAL_REFUND_RATE else 1
-end
-
--- Why this player may not have another of this machine right now, if anything stops it.
-local function purchaseBlock(player: Player, definitionId: string, extra: number): string?
-	local definition = MachineDefinitions[definitionId]
-	if definition == nil or not definition.Placeable then
-		return "That item is not for sale."
-	end
-	if definition.Research and player:GetAttribute("Research_" .. definition.Research) ~= true then
-		local project = ResearchDefinitions.Projects[definition.Research]
-		return string.format(
-			"Research %s at the cooperative office first.",
-			if project then string.lower(project.DisplayName) else definition.Research
-		)
-	end
-	if definition.UnlockAfterFirstSale and player:GetAttribute("TutorialComplete") ~= true then
-		return definition.DisplayName .. " unlocks after your first sale."
-	end
-	if definition.MaxPerPlayer then
-		local total = owned(player, definitionId) + extra
-		for _, record in records do
-			if record.owner == player and record.node.definitionId == definitionId then
-				total += 1
-			end
-		end
-		if total > definition.MaxPerPlayer then
-			return string.format(
-				"You can have only %d %s.",
-				definition.MaxPerPlayer,
-				string.lower(definition.DisplayName)
-			)
-		end
-	end
-	return nil
-end
-
-local function buyItem(player: Player, definitionId: unknown, count: unknown): (boolean, string)
-	if typeof(definitionId) ~= "string" or typeof(count) ~= "number" then
-		return false, "Invalid purchase."
-	end
-	local amount = math.clamp(math.floor(count), 1, MAX_BUY)
-	local blocked = purchaseBlock(player, definitionId, amount)
-	if blocked then
-		return false, blocked
-	end
-	local definition = MachineDefinitions[definitionId]
-	local price = definition.Cost * amount
-	if playerState:GetCredits(player) < price then
-		return false, string.format("That costs %d credits.", price)
-	end
-	playerState:AdjustCredits(player, -price, "Construction")
-	setOwned(player, definitionId, owned(player, definitionId) + amount)
-	return true,
-		string.format(
-			"Bought %d %s for %d credits. Find it in your inventory (B).",
-			amount,
-			string.lower(definition.DisplayName),
-			price
-		)
-end
-
-local function sellItem(player: Player, definitionId: unknown): (boolean, string)
-	if typeof(definitionId) ~= "string" or MachineDefinitions[definitionId] == nil then
-		return false, "Invalid sale."
-	end
-	if owned(player, definitionId) <= 0 then
-		return false, "You have none of those in your inventory."
-	end
-	local definition = MachineDefinitions[definitionId]
-	local refund = math.floor(definition.Cost * refundRate(player))
-	setOwned(player, definitionId, owned(player, definitionId) - 1)
-	playerState:AdjustCredits(player, refund, "Refund")
-	return true,
-		string.format("Sold a %s for %d credits.", string.lower(definition.DisplayName), refund)
 end
 
 local function dismantle(player: Player, nodeId: number)
@@ -463,10 +383,19 @@ local function dismantle(player: Player, nodeId: number)
 			return
 		end
 	end
+	-- Like Industrialist, removing a machine always works: whatever it held, and whatever was on
+	-- its belts and pipes, goes with it. The price comes back in full.
+	local node = record.node
 	local linkIds = {}
-	for _, link in line:LinksOf(record.node) do
+	for _, link in line:LinksOf(node) do
 		table.insert(linkIds, link.id)
+		table.clear(link.items)
 	end
+	table.clear(node.input)
+	table.clear(node.output)
+	table.clear(node.held)
+	table.clear(node.reserved)
+	node.cycling = false
 	local ok, message = line:RemoveNode(nodeId)
 	if not ok then
 		notify(player, message)
@@ -475,8 +404,12 @@ local function dismantle(player: Player, nodeId: number)
 	for _, linkId in linkIds do
 		removeBelt(linkId)
 	end
-	-- The machine goes back into the inventory, ready to place again or sell.
-	setOwned(player, record.node.definitionId, owned(player, record.node.definitionId) + 1)
+	-- Everything paid comes back; a free kit machine goes back to the free stock.
+	if record.cost > 0 then
+		playerState:AdjustCredits(player, record.cost, "Refund")
+	else
+		setOwned(player, record.node.definitionId, owned(player, record.node.definitionId) + 1)
+	end
 	if handler and handler.onRemoved then
 		handler.onRemoved(record)
 	end
@@ -486,10 +419,16 @@ local function dismantle(player: Player, nodeId: number)
 	onMachinesChanged()
 	notify(
 		player,
-		string.format(
-			"Picked up the %s. It is back in your inventory (B).",
-			string.lower(record.node.definition.DisplayName)
-		)
+		if record.cost > 0
+			then string.format(
+				"Removed the %s: +%d credits back.",
+				string.lower(record.node.definition.DisplayName),
+				record.cost
+			)
+			else string.format(
+				"Removed the %s. It is free to place again.",
+				string.lower(record.node.definition.DisplayName)
+			)
 	)
 end
 
@@ -734,7 +673,7 @@ local function placeMachine(
 		definition.Size.Y / 2 + 3,
 		90
 	)
-	register(node, model, statusLabel, definition.Cost, player)
+	register(node, model, statusLabel, if fromInventory then 0 else definition.Cost, player)
 	records[node.id].paddy = paddy
 	records[node.id].layout = {
 		id = definitionId,
@@ -791,7 +730,7 @@ local function placeMachine(
 		handler.onPlaced(records[node.id])
 	end
 	if fromInventory then
-		return true, string.format("Placed %s from your inventory.", definition.DisplayName)
+		return true, string.format("Placed %s (free).", definition.DisplayName)
 	end
 	return true, string.format("Placed %s for %d credits.", definition.DisplayName, definition.Cost)
 end
@@ -1176,13 +1115,12 @@ local function removeConveyor(player: Player, rawX: unknown, rawZ: unknown): (bo
 	if tile.owner ~= player then
 		return false, "That belt belongs to another player."
 	end
-	-- Spec 15.1: never delete items in transit.
+	-- Whatever was travelling along a broken run is lost with it, like removing a machine.
 	for _, entry in conveyorLinks do
 		local link = line.links[entry.linkId]
 		local onPath = string.find(";" .. entry.signature .. ";", ";" .. key .. ";", 1, true)
-		if link and #link.items > 0 and onPath then
-			return false,
-				"This belt is carrying straw. Pause the machine feeding it and let it clear."
+		if link and onPath then
+			table.clear(link.items)
 		end
 	end
 	if tile.model then
@@ -1576,13 +1514,21 @@ function MachineService:GetProcessorStates(): { [number]: { name: string, state:
 end
 
 -- Everything this player has built, for SaveService.
-function MachineService:ExportLayout(
-	player: Player
-): { machines: { SavedMachine }, tiles: { SavedTile } }
+-- nodeIds lists the live machine id of each saved machine, in the same order, so wires can name
+-- machines by their place in the list.
+function MachineService:ExportLayout(player: Player): {
+	machines: { SavedMachine },
+	tiles: { SavedTile },
+	nodeIds: { number },
+}
 	local machines: { SavedMachine } = {}
-	for _, record in records do
+	local nodeIds: { number } = {}
+	for nodeId, record in records do
 		if record.owner == player and record.layout then
-			table.insert(machines, record.layout)
+			local saved = table.clone(record.layout)
+			saved.paid = record.cost
+			table.insert(machines, saved)
+			table.insert(nodeIds, nodeId)
 		end
 	end
 	local saved: { SavedTile } = {}
@@ -1591,7 +1537,7 @@ function MachineService:ExportLayout(
 			table.insert(saved, { x = tile.ix, z = tile.iz, dir = tile.dir, medium = tile.medium })
 		end
 	end
-	return { machines = machines, tiles = saved }
+	return { machines = machines, tiles = saved, nodeIds = nodeIds }
 end
 
 -- Studio play tests only (DebugBridge "roundtrip"): removes everything a player built, contents
@@ -1631,41 +1577,52 @@ function MachineService:ClearPlayerForTest(player: Player)
 	onMachinesChanged()
 end
 
--- Rebuilds a saved factory for free: each machine goes into the inventory and is placed from
--- there, so anything that no longer fits simply stays in the player's bag.
-function MachineService:ImportLayout(player: Player, layout: any)
+-- Rebuilds a saved factory without charging again. Each machine keeps what was paid for it, so
+-- removing it later refunds the same. A machine that no longer fits is paid back (or returned to
+-- the free stock). Returns the new machine id for each saved machine, by its place in the list.
+function MachineService:ImportLayout(player: Player, layout: any): { [number]: number }
+	local newIds: { [number]: number } = {}
 	if typeof(layout) ~= "table" then
-		return
+		return newIds
 	end
-	local placed, kept = 0, 0
-	for _, saved in layout.machines or {} do
+	local placed, refunded = 0, 0
+	for index, saved in layout.machines or {} do
 		local definition = MachineDefinitions[saved.id]
 		if definition and definition.Placeable then
+			local paid = if typeof(saved.paid) == "number" then saved.paid else definition.Cost
 			setOwned(player, saved.id, owned(player, saved.id) + 1)
+			local before = line.nextNodeId
 			local ok = placeMachine(
 				player,
 				saved.id,
 				Vector3.new(saved.x, saved.y or floorTopY, saved.z),
 				saved.rot or 0
 			)
-			if ok then
+			local record = if ok then records[before] else nil
+			if record then
+				record.cost = paid
+				newIds[index] = before
 				placed += 1
 			else
-				kept += 1
+				if paid > 0 then
+					setOwned(player, saved.id, owned(player, saved.id) - 1)
+					playerState:AdjustCredits(player, paid, "Refund")
+				end
+				refunded += 1
 			end
 		end
 	end
 	for _, saved in layout.tiles or {} do
 		placeConveyor(player, saved.x, saved.z, saved.dir, saved.medium, true)
 	end
-	if placed + kept > 0 then
+	if placed + refunded > 0 then
 		notify(
 			player,
-			if kept > 0
+			if refunded > 0
 				then string.format(
-					"Welcome back. Rebuilt %d machines; %d did not fit and wait in your bag (B).",
+					"Welcome back. Rebuilt %d machines; %d no longer fit and were paid back.",
 					placed,
-					kept
+					refunded
 				)
 				else string.format(
 					"Welcome back. Your factory is as you left it (%d machines).",
@@ -1673,6 +1630,7 @@ function MachineService:ImportLayout(player: Player, layout: any)
 				)
 		)
 	end
+	return newIds
 end
 
 -- Unloads truck cargo into the fixed factory intake. Returns how many bundles fit.
@@ -1711,12 +1669,6 @@ function MachineService:Initialize(world: Model, playerStateService: any)
 	local deleteMachineRemote = Instance.new("RemoteFunction")
 	deleteMachineRemote.Name = "DeleteMachine"
 	deleteMachineRemote.Parent = remotes
-	local buyRemote = Instance.new("RemoteFunction")
-	buyRemote.Name = "BuyItem"
-	buyRemote.Parent = remotes
-	local sellRemote = Instance.new("RemoteFunction")
-	sellRemote.Name = "SellItem"
-	sellRemote.Parent = remotes
 	noticeEvent = Instance.new("RemoteEvent")
 	noticeEvent.Name = "Notice"
 	noticeEvent.Parent = remotes
@@ -1754,8 +1706,6 @@ function MachineService:Initialize(world: Model, playerStateService: any)
 	createBuyer(world)
 
 	placeRemote.OnServerInvoke = placeMachine
-	buyRemote.OnServerInvoke = buyItem
-	sellRemote.OnServerInvoke = sellItem
 	placeConveyorRemote.OnServerInvoke = function(
 		player: Player,
 		x: unknown,

@@ -23,7 +23,8 @@
 -- cranked it, up to MaxCrankSeconds), "Diesel" (charges OperatingCostPerCycle every cycle) or a
 -- fuel item through its IN port (InputItem, one cycle per unit). SmogPerCycle adds to the district
 -- smog each cycle it burns. Kind Battery stores CapacityKJ and moves up to RateKW. Kind Pole only
--- carries power. Reach (studs) is how far a pole, generator or battery connects (Shared/PowerGrid).
+-- carries power: the wrench strings wires from its Coils to machines or other poles, up to Reach
+-- studs long (Shared/PowerGrid).
 -- Fluids (section 2.3): InputMedium and OutputMedium set the primary ports' medium (Fluid or Gas,
 -- piped instead of belted). NoInput makes an extractor with no IN port, such as the water pump.
 return {
@@ -245,7 +246,6 @@ return {
 		-- Each hold of E adds this much running time, up to MaxCrankSeconds.
 		CrankSeconds = 20,
 		MaxCrankSeconds = 60,
-		Reach = 16,
 		Cost = 40,
 		Size = { X = 6, Y = 5, Z = 6 },
 		Color = { 120, 96, 70 },
@@ -256,7 +256,6 @@ return {
 		Placeable = true,
 		Fuel = "Sun",
 		PowerOutputKW = 3,
-		Reach = 12,
 		Cost = 120,
 		Size = { X = 8, Y = 4, Z = 8 },
 		Color = { 40, 62, 104 },
@@ -265,7 +264,9 @@ return {
 		DisplayName = "Power pole",
 		Kind = "Pole",
 		Placeable = true,
-		Reach = 32,
+		-- Two coils, each its own junction, and the longest wire it takes (studs).
+		Coils = 2,
+		Reach = 40,
 		Cost = 10,
 		Size = { X = 2, Y = 14, Z = 2 },
 		Color = { 110, 82, 56 },
@@ -282,7 +283,6 @@ return {
 		CycleSeconds = 12,
 		PowerOutputKW = 15,
 		SmogPerCycle = 0.15,
-		Reach = 16,
 		Cost = 300,
 		Size = { X = 14, Y = 12, Z = 12 },
 		ExhaustOffset = { X = 4, Y = 12, Z = 0 },
@@ -297,7 +297,6 @@ return {
 		OperatingCostPerCycle = 5,
 		PowerOutputKW = 20,
 		SmogPerCycle = 0.25,
-		Reach = 16,
 		Cost = 350,
 		Size = { X = 12, Y = 8, Z = 8 },
 		ExhaustOffset = { X = -4, Y = 8, Z = 0 },
@@ -309,7 +308,6 @@ return {
 		Placeable = true,
 		CapacityKJ = 3000,
 		RateKW = 25,
-		Reach = 16,
 		Cost = 200,
 		Size = { X = 6, Y = 6, Z = 6 },
 		Color = { 70, 160, 90 },
@@ -387,7 +385,6 @@ return {
 		InputCapacity = 6,
 		CycleSeconds = 1,
 		PowerOutputKW = 50,
-		Reach = 16,
 		Cost = 600,
 		Size = { X = 14, Y = 8, Z = 8 },
 		Color = { 62, 120, 96 },
@@ -488,7 +485,6 @@ return {
 		PowerOutputKW = 40,
 		-- Biogas burns clean compared with straw or diesel.
 		SmogPerCycle = 0.02,
-		Reach = 16,
 		Cost = 700,
 		Size = { X = 12, Y = 8, Z = 8 },
 		ExhaustOffset = { X = -3, Y = 9, Z = 0 },

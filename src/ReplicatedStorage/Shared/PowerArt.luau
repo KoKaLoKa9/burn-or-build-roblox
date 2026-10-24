@@ -21,6 +21,7 @@ local GREEN = Color3.fromRGB(62, 150, 84)
 local PORCELAIN = Color3.fromRGB(232, 232, 224)
 local SOOT = Color3.fromRGB(40, 38, 36)
 local CONCRETE = Color3.fromRGB(160, 158, 150)
+local COPPER = Color3.fromRGB(196, 112, 52)
 
 local function block(
 	model: Model,
@@ -200,7 +201,9 @@ local function buildPowerPole(model: Model)
 		WOOD,
 		Enum.Material.Wood
 	)
-	for _, z in { -2, 0, 2 } do
+	-- Two coils on porcelain insulators, one at each end of the crossarm. Each is its own junction,
+	-- and the wrench clicks them (Coil attribute), so they answer raycasts.
+	for coil, z in { -2, 2 } do
 		column(
 			model,
 			"Insulator",
@@ -210,8 +213,18 @@ local function buildPowerPole(model: Model)
 			PORCELAIN,
 			Enum.Material.SmoothPlastic
 		)
+		local ring = block(
+			model,
+			"Coil" .. coil,
+			Vector3.new(1.2, 1.2, 1.2),
+			CFrame.new(0, 14.2, z),
+			COPPER,
+			Enum.Material.Metal,
+			Enum.PartType.Ball
+		)
+		ring.CanQuery = true
+		ring:SetAttribute("Coil", coil)
 	end
-	wireTop(model, Vector3.new(0, 13.6, 0))
 end
 
 local function buildStrawGenerator(model: Model)

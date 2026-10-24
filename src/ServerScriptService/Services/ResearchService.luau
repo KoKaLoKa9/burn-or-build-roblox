@@ -134,7 +134,7 @@ local function tick(dt: number)
 			notify(
 				player,
 				string.format(
-					"Research complete: %s. Find it in your inventory (B).",
+					"Research complete: %s. Find it in the build menu (1).",
 					definition.DisplayName
 				)
 			)

@@ -17,62 +17,56 @@ local function check(name: string, condition: boolean, detail: string?)
 	end
 end
 
-local function square(id: number, x: number, z: number, half: number, reach: number?)
-	return {
-		id = id,
-		x = x,
-		z = z,
-		rect = { minX = x - half, maxX = x + half, minZ = z - half, maxZ = z + half },
-		reach = reach,
-	}
+local Key = PowerGrid.Key
+
+-- Wires: a generator and a machine on the same coil share a network; a wire to the other coil does
+-- not join them, because a pole's two coils are separate junctions.
+do
+	local generator, machine, other, pole = { id = 1 }, { id = 2 }, { id = 3 }, 9
+	local coil1, coil2 = { id = pole, coil = 1 }, { id = pole, coil = 2 }
+	local keys = { Key(generator), Key(machine), Key(other), Key(coil1), Key(coil2) }
+	local networks = PowerGrid.Networks(keys, {
+		{ Key(coil1), Key(generator) },
+		{ Key(coil1), Key(machine) },
+		{ Key(coil2), Key(other) },
+	})
+	check("same coil shares a network", networks[Key(generator)] == networks[Key(machine)])
+	check("the other coil is separate", networks[Key(other)] ~= networks[Key(generator)])
+	check("an unwired machine is alone", PowerGrid.Networks({ "m5" }, {})["m5"] == "m5")
 end
 
--- A machine beside a generator joins its network; a far machine does not.
+-- Pole to pole wires carry power across the floor.
 do
-	local networks, edges = PowerGrid.Networks({
-		square(1, 0, 0, 2, 16),
-		square(2, 20, 0, 8),
-		square(3, 80, 0, 8),
-	})
-	check("near machine joins the generator", networks[2] == networks[1])
-	check("far machine stays alone", networks[3] ~= networks[1])
-	check("one wire drawn", #edges == 1, tostring(#edges))
+	local keys = { "m1", "m2", "p7:1", "p8:1" }
+	local networks =
+		PowerGrid.Networks(keys, { { "m1", "p7:1" }, { "p7:1", "p8:1" }, { "p8:1", "m2" } })
+	check("poles chain a far machine", networks.m2 == networks.m1)
+	check("network name is stable", networks.m1 == "m1")
 end
 
--- Poles chain power across the floor.
+-- Wires to ends that no longer exist are ignored.
 do
-	local networks = PowerGrid.Networks({
-		square(1, 0, 0, 2, 16),
-		square(2, 30, 0, 1, 36),
-		square(3, 64, 0, 1, 36),
-		square(4, 90, 0, 8),
-	})
-	check("poles chain a far machine", networks[4] == networks[1])
+	local networks = PowerGrid.Networks({ "m1" }, { { "m1", "p4:1" } })
+	check("a dangling wire is ignored", networks.m1 == "m1")
 end
 
--- Hubs out of each other's reach form two networks.
+-- What may be wired.
 do
-	local networks = PowerGrid.Networks({
-		square(1, 0, 0, 2, 16),
-		square(2, 100, 0, 2, 16),
-	})
-	check("separate generators stay separate", networks[1] ~= networks[2])
-end
-
--- A machine wires to its nearest hub only.
-do
-	local _, edges = PowerGrid.Networks({
-		square(1, 0, 0, 1, 36),
-		square(2, 10, 0, 1, 36),
-		square(3, 14, 0, 2),
-	})
-	local wiredTo = nil
-	for _, edge in edges do
-		if edge.b == 3 then
-			wiredTo = edge.a
-		end
-	end
-	check("machine wires to the nearest pole", wiredTo == 2, tostring(wiredTo))
+	local pole, machine = { id = 9, coil = 1 }, { id = 2 }
+	check(
+		"coil to machine in reach",
+		PowerGrid.WireProblem(pole, machine, true, false, 20, 40) == nil
+	)
+	check(
+		"machine to machine refused",
+		PowerGrid.WireProblem({ id = 1 }, machine, false, false, 5, 40) ~= nil
+	)
+	check("too long refused", PowerGrid.WireProblem(pole, machine, true, false, 50, 40) ~= nil)
+	check("same end refused", PowerGrid.WireProblem(pole, pole, true, true, 0, 40) ~= nil)
+	check(
+		"coil to coil of the same pole allowed",
+		PowerGrid.WireProblem(pole, { id = 9, coil = 2 }, true, true, 4, 40) == nil
+	)
 end
 
 -- Enough supply runs everything at full speed.
