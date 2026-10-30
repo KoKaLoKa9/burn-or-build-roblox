@@ -11,6 +11,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemDefinitions = require(Shared:WaitForChild("ItemDefinitions"))
 local MachineArt = require(Shared:WaitForChild("MachineArt"))
+local FieldArt = require(Shared:WaitForChild("FieldArt"))
 local PipeDefinitions = require(Shared:WaitForChild("PipeDefinitions"))
 local PipeRoute = require(Shared:WaitForChild("PipeRoute"))
 local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
@@ -673,6 +674,15 @@ local function placeMachine(
 		definition.Size.Y / 2 + 3,
 		90
 	)
+	-- The textured machines speak for themselves (moving parts, steam), so their floating name
+	-- and status stay hidden. Poles keep the coil readout, storage and stalls their counts, and
+	-- farm machines their hints (such as "Clear the straw first").
+	local quiet = definition.Kind == "Processor"
+		or definition.Kind == "Generator"
+		or definition.Kind == "Battery"
+	if quiet then
+		(statusLabel.Parent :: BillboardGui).Enabled = false
+	end
 	register(node, model, statusLabel, if fromInventory then 0 else definition.Cost, player)
 	records[node.id].paddy = paddy
 	records[node.id].layout = {
@@ -703,18 +713,16 @@ local function placeMachine(
 		end)
 		table.insert(prompts, materialPrompt)
 	end
-	if
-		definition.Kind == "Processor"
-		or definition.Kind == "Storage"
-		or definition.Kind == "Farm"
-		or definition.Kind == "Generator"
-	then
-		local action = if definition.Kind == "Storage"
-			then "Pause / resume output"
-			elseif definition.Kind == "Generator" then "Switch on / off"
-			else "Pause / resume"
-		local pausePrompt =
-			createPrompt(body, "PausePrompt", action, definition.DisplayName, Enum.KeyCode.F, 0)
+	-- Machines are always on; only storage can hold back its output.
+	if definition.Kind == "Storage" then
+		local pausePrompt = createPrompt(
+			body,
+			"PausePrompt",
+			"Pause / resume output",
+			definition.DisplayName,
+			Enum.KeyCode.F,
+			0
+		)
 		pausePrompt.Triggered:Connect(function(triggeringPlayer)
 			togglePause(triggeringPlayer, node.id)
 		end)
@@ -1317,6 +1325,11 @@ end
 local function refreshVisuals()
 	for _, record in records do
 		record.statusLabel.Text = describe(record)
+		-- Clients turn moving parts (the dryer drum) only while the machine works.
+		local working = record.node.state == "Processing"
+		if record.model:GetAttribute("Working") ~= working then
+			record.model:SetAttribute("Working", working)
+		end
 		local exhaust = record.exhaust
 		if exhaust then
 			local rate = EXHAUST_RATE[record.node.state] or 0
@@ -1363,6 +1376,25 @@ local function refreshVisuals()
 			itemPart.Size = if entry.unit.item == "PelletCrate"
 				then Vector3.new(1.5, 1.4, 1.5)
 				else Vector3.new(1.3, 1.1, 1.3)
+			-- Straw and products ride as their small textured models when the field pack is in.
+			local art = itemPart:FindFirstChild("ItemArt") :: Model?
+			if art and art:GetAttribute("Item") ~= entry.unit.item then
+				art:Destroy()
+				art = nil
+			end
+			if art == nil then
+				local artName = FieldArt.ItemName(entry.unit.item)
+				art = if artName then FieldArt.Place(artName, CFrame.new()) else nil
+				if art then
+					art.Name = "ItemArt"
+					art:SetAttribute("Item", entry.unit.item)
+					art.Parent = itemPart
+				end
+			end
+			itemPart.Transparency = if art then 1 else 0
+			if art then
+				art:PivotTo(CFrame.new(itemPart.Position - Vector3.new(0, itemPart.Size.Y / 2, 0)))
+			end
 		end
 
 		-- A queue behind a busy machine is normal, so it only tints the pipe. Text is kept for

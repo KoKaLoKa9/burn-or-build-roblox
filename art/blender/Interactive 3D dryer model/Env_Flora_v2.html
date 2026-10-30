@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV Flora v2 — Thai paddy trees and plants</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#d6d7d4;color:#1c1d1b;font-family:"IBM Plex Mono",ui-monospace,monospace}
+  a{color:#1f6f6c}a:hover{color:#0f4846}
+  three-d-stage:not(:defined){visibility:hidden}
+  three-d-stage{height:100vh}
+  #busy{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:600 13px "IBM Plex Mono",monospace;color:#3b3d3a;pointer-events:none}
+</style>
+</head>
+<body>
+<three-d-stage name="Env_Flora_v2" background="#d6d7d4"></three-d-stage>
+<div id="busy">Growing the flora pack…</div>
+<script src="three-d-stage.js"></script>
+<script type="module">
+import { THREE, prepStage, layoutRows, setupViewer } from './env_common.js';
+import * as F from './env_flora_lib.js';
+const stage = document.querySelector('three-d-stage');
+await stage.ready;
+try { await document.fonts.load('600 12px "IBM Plex Mono"'); } catch (e) {}
+prepStage(stage);
+
+const fix = (v, lo = .8) => [v * lo, v];
+const specs = {};
+const S = (name, w, h, d, budget = [1500, 6000]) => specs[name] = { w, h, d, budget };
+const assets = [
+  [F.sugarPalm('A', 101, 29, 2.5, { leaves: 26, dead: 4 }), [fix(14, .8), [26, 40], fix(14, .8)]],
+  [F.sugarPalm('B', 102, 34, 1.2, { leaves: 28, dead: 5, fruit: true }), [fix(14, .8), [26, 40], fix(14, .8)]],
+  [F.sugarPalm('C', 103, 36.2, 3.5, { leaves: 24, dead: 7 }), [fix(14, .8), [26, 40], fix(14, .8)]],
+  [F.rainTree('A', 201, 38, 19.5), [[36, 44], [18, 24], [36, 44]]],
+  [F.rainTree('B', 202, 43, 23), [[36, 44], [18, 24], [36, 44]]],
+  [F.umbrellaPine('A', 301, 23), [fix(12, .75), [22, 28], fix(12, .75)]],
+  [F.umbrellaPine('B', 302, 26.0), [fix(12, .75), [22, 28], fix(12, .75)]],
+  [F.frangipani('A', 401), [fix(10, .75), fix(9, .8), fix(10, .75)]],
+  [F.banana('A', 501, 4, 10.5), [fix(8, .75), [9, 12], fix(8, .75)]],
+  [F.banana('B', 502, 3, 9.6), [fix(8, .75), [9, 12], fix(8, .75)]],
+  [F.bamboo('A', 601), [fix(10, .75), fix(20, .85), fix(10, .75)]],
+  [F.bush('A', 701, 'round'), [[4, 7], [3, 5], [4, 7]]],
+  [F.bush('B', 702, 'spread'), [[4, 7], [3, 5], [4, 7]]],
+  [F.bush('C', 703, 'bougain'), [[4, 7], [3, 5], [4, 7]]],
+  [F.rock('A', 801, 'laterite', [4.4, 2.2, 3.6]), [[2, 6], [1, 3], [2, 6]]],
+  [F.rock('B', 802, 'granite', [5.8, 2.9, 4.8]), [[2, 6], [1, 3], [2, 6]]],
+  [F.rock('C', 803, 'granite', [2.8, 1.4, 2.4]), [[2, 6], [1, 3], [2, 6]]],
+  [F.strawStack('A', 901, false), [fix(8, .85), fix(7, .85), fix(8, .85)]],
+  [F.strawStack('B', 902, true), [fix(8, .85), fix(7, .85), fix(8, .85)]],
+  [F.fieldHut('A', 1001), [fix(10, .85), fix(9, .85), fix(8, .85)]],
+  [F.grassClump('A', 1101, false), [fix(3, .75), fix(1.5, .75), fix(3, .75)]],
+  [F.grassClump('B', 1102, true), [fix(3, .75), fix(1.5, .75), fix(3, .75)]],
+];
+const root = new THREE.Group(); root.name = 'EV_FloraPack';
+for (const [g, [w, h, d]] of assets) { root.add(g); S(g.name, w, h, d); }
+layoutRows(root, [
+  ['EV_SugarPalm_A', 'EV_SugarPalm_B', 'EV_SugarPalm_C', 'EV_UmbrellaPine_A', 'EV_UmbrellaPine_B', 'EV_RainTree_A', 'EV_RainTree_B'],
+  ['EV_Bamboo_A', 'EV_Banana_A', 'EV_Banana_B', 'EV_Frangipani_A', 'EV_FieldHut_A', 'EV_StrawStack_A', 'EV_StrawStack_B'],
+  ['EV_Bush_A', 'EV_Bush_B', 'EV_Bush_C', 'EV_Rock_A', 'EV_Rock_B', 'EV_Rock_C', 'EV_GrassClump_A', 'EV_GrassClump_B'],
+], 5);
+document.getElementById('busy').remove();
+setupViewer(stage, root, { title: 'EV FLORA · v2', specs, filename: 'Env_Flora_v2.glb' });
+</script>
+</body>
+</html>

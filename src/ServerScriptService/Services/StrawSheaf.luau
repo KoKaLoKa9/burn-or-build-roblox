@@ -1,7 +1,12 @@
 --!strict
 
 -- A harvested rice straw sheaf the player walks up to and picks up: one sheaf is one bundle.
--- Built from parts in the low-poly machine style, so no mesh upload is needed.
+-- Uses the textured sheaves of the field art pack when it is imported, otherwise parts in the
+-- low-poly machine style.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local FieldArt = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FieldArt"))
 
 local StrawSheaf = {}
 
@@ -44,6 +49,26 @@ function StrawSheaf.Build(groundCFrame: CFrame, seed: number): (Model, BasePart)
 		* CFrame.Angles(0, random:NextNumber(0, math.pi * 2), 0)
 		* CFrame.Angles(math.rad(random:NextNumber(-6, 6)), 0, math.rad(random:NextNumber(-6, 6)))
 
+	local variants = FieldArt.Variants("StrawSheaf")
+	if #variants > 0 then
+		local art = FieldArt.Place(variants[random:NextInteger(1, #variants)], base)
+		if art then
+			art.Name = "Art"
+			art.Parent = model
+			-- An invisible block carries the pick-up prompt.
+			local bundle = part(
+				model,
+				"Bundle",
+				Vector3.new(2.4, 4.6, 2.4),
+				base * CFrame.new(0, 2.3, 0),
+				STRAW
+			)
+			bundle.Transparency = 1
+			model.PrimaryPart = bundle
+			return model, bundle
+		end
+	end
+
 	part(model, "Foot", Vector3.new(0.5, 2.1, 2.1), upright(base, 0.25), STRAW)
 	local body = part(model, "Bundle", Vector3.new(2.8, 1.7, 1.7), upright(base, 1.7), STRAW)
 	local tie = part(model, "Tie", Vector3.new(0.35, 1.85, 1.85), upright(base, 1.9), TIE)
@@ -78,7 +103,21 @@ end
 
 -- Burned straw is left as charred stubs so the field shows what happened.
 function StrawSheaf.Char(model: Model)
+	local art = model:FindFirstChild("Art")
+	if art and art:IsA("Model") then
+		local burnt = FieldArt.Place("EV_StrawSheafBurnt_A", art:GetPivot())
+		if burnt then
+			art:Destroy()
+			burnt.Name = "Art"
+			burnt.Parent = model
+		end
+	end
+	-- The textured art already shows the burn; only the part-built sheaf is recoloured.
+	local textured = model:FindFirstChild("Art")
 	for _, descendant in model:GetDescendants() do
+		if textured and descendant:IsDescendantOf(textured) then
+			continue
+		end
 		if descendant:IsA("BasePart") then
 			descendant.Color = CHARRED
 			descendant.Material = Enum.Material.Slate

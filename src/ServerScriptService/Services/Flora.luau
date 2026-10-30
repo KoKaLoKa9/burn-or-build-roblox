@@ -6,6 +6,10 @@
 -- object stands and a Random, and returns an unparented Model. Nothing here is clickable or
 -- touchable, so scenery never gets in the way of build mode or prompts.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local FieldArt = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FieldArt"))
+
 local Flora = {}
 
 local LEAVES = {
@@ -532,6 +536,18 @@ end
 
 -- A low earth bund (paddy dike) along one edge of a field.
 function Flora.Bund(parent: Instance, cframe: CFrame, length: number)
+	-- The field art pack's bund segments run along their Z, so turn them onto this bund's X.
+	local position = cframe.Position
+	local strip = FieldArt.Strip(
+		"Bund",
+		cframe * CFrame.Angles(0, math.pi / 2, 0),
+		length,
+		math.floor(position.X * 13 + position.Z * 7)
+	)
+	if strip then
+		strip.Parent = parent
+		return
+	end
 	local model = newModel("Bund")
 	part(
 		model,

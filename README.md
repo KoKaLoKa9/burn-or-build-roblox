@@ -35,7 +35,7 @@ Week 4 P0 season loop, forecast weather, and the end of season results, built ag
 - Endless sandbox: when the 20 minute clock runs out a new year starts (the HUD shows YEAR n) with its phases, burn ban and weather again, instead of the results screen (`GameConfig.Round.Endless`).
   - Saving: `SaveService` keeps every player attribute (credits, trust, research, free kit), bought plots, the full factory layout (machines, belts and pipes, with what each machine cost) and the power wires in a DataStore. It saves every minute, on leaving and on shutdown. Machines come back empty.
   - Studio limits: DataStores only work in the published experience, so a local Studio play test plays without saving. `DevScenario` (set `DevScenarioConfig.Scenario` to "steam", "save" or "biogas") runs scripted Studio tests, including a JSON save round trip.
-- Week 5 farm machines, the first automation tier for rice: the rice transplanter (250 credits) plants one empty row every 4 s at the usual seed cost, and the combine harvester (400 credits) harvests one ripe row every 5 s for the usual grain. Both stand on the ground beside a paddy (Farm A or a plot you own, within 12 studs of its edge, never on the field or its sign) and work that paddy for their owner through `PaddyField`. Harvested rows still leave straw, and the transplanter waits until it is cleared, so the burn or build choice stays with the player. F pauses them; the Delete tool refunds them like any machine. They use part-built placeholder art (`FarmMachineArt`) until Blender models are imported.
+- Week 5 farm machines, the first automation tier for rice: the rice transplanter (250 credits) plants one empty row every 4 s at the usual seed cost, and the combine harvester (400 credits) harvests one ripe row every 5 s for the usual grain. Both stand on the ground beside a paddy (Farm A or a plot you own, within 12 studs of its edge, never on the field or its sign) and work that paddy for their owner through `PaddyField`. Harvested rows still leave straw, and the transplanter waits until it is cleared, so the burn or build choice stays with the player. They always run; the Delete tool refunds them like any machine. They use part-built placeholder art (`FarmMachineArt`) until Blender models are imported.
 
 ### Week 4 scope
 
@@ -117,7 +117,7 @@ Balance assumptions not fixed by spec v0.2 live in `CommitmentDefinitions.luau`:
 | G | Toggle grid snapping |
 | Left click | Place the machine ghost, or lay conveyor tiles |
 | Q | Leave build or conveyor mode |
-| F | Pause or resume a machine |
+| F | Pause or resume a storage output (machines are always on) |
 | X | Delete tool: hover your machine or belt tile (outlined red) and click to delete it, or drag across belt tiles to clear a run. The machine goes back into your inventory (belt tiles are refunded); anything still holding items is refused |
 
 Machine IN and OUT ports only appear while placing a machine or laying conveyor. A belt carries items once its tiles run from a machine OUT to the next machine IN and the last tile points into that machine.
@@ -199,7 +199,7 @@ Everything under `src/ServerScriptService/Simulation` (`ProductionLine`, `FarmCo
 3. Connect intake to dryer, dryer to shredder, shredder to pellet mill, and pellet mill to the pellet buyer.
 4. Try connecting the dryer straight to the pellet mill and confirm the wrong port message.
 5. Deposit the straw at the intake. Expect 4 crates sold, +600 sales, and -120 processing cost: 1,000 - 800 + 600 - 120 = 680 credits.
-6. Pause a machine and confirm its status reads Paused, then resume it.
+6. Confirm factory machines and generators show no floating name board and no pause prompt; they run whenever they have input and power.
 
 ### Week 3 Studio play test
 
@@ -213,7 +213,7 @@ Start from a fresh Play session. Times are minutes since the server started.
 6. Finish the Week 2 line and sell the first crate. Confirm the notice names storage [4] and the truck terminal [5] as unlocked.
 7. Place a truck terminal far from any road and confirm the red ghost asks for a road within 20 studs. Place it beside the factory road (-500 credits).
 8. Press E at the terminal until it reads Farm B, then hold F. Watch the truck drive the road, load at Farm B, and return. Its label must show state, cargo, and an arrival timer.
-9. Pause the dryer and deposit carried straw until the intake is full. Confirm the truck shows Destination Full and the notice warns about unloading space, then unloads after you resume the dryer.
+9. Unwire the dryer and deposit carried straw until the intake is full. Confirm the truck shows Destination Full and the notice warns about unloading space, then unloads after you wire the dryer again.
 10. Confirm each completed trip charges exactly 50 credits and that Farm B reaches Completed: +10 trust and +100 credits, once.
 11. Hold V while a truck is still on the way out. It must return empty with no route fee.
 12. Place covered storage between the dryer and shredder (-250 credits). Confirm the count and text bar fill to 12, F pauses output while it keeps filling, and E cycles the material.
@@ -238,7 +238,7 @@ Start from a fresh Play session. Times are minutes since the server started. To 
 10. Profit: season profit should equal pellet sales plus bonuses minus processing, route, and extension fees (machine purchases are not subtracted). Cooperative value must equal ending cash plus 70 percent of the infrastructure value listed under Causes.
 11. Clean Air: district exposure equals the sum of the Exposure attributes in `BurnRecords`. A rejected farm's burn appears under "Unserved farms" and as its own cause; your own field burn or a missed commitment appears under "Your decisions". Exposure prevented lists the fields you collected.
 12. Trust: the completed, missed, and rejected counts match the farm states, and each farm lists its trust change. The farmer trust value matches the HUD meter.
-13. Season replay: the bottleneck line names a machine if one was backed up for 15 s (pause the shredder with F while the dryer runs to force it), "What went well" names a kept promise, cleared field, or first sale, and burns are listed in time order.
+13. Season replay: the bottleneck line names a machine if one was backed up for 15 s (unwire the shredder while the dryer runs to force it), "What went well" names a kept promise, cleared field, or first sale, and burns are listed in time order.
 14. Check that no screen calls the points PM2.5. The only mention is the disclaimer in the result footer saying the points are not measured PM2.5 concentrations.
 15. Close the results, confirm the SEASON RESULTS button at the top reopens them.
 16. Soft end (third session): reject both farms, burn Farm A with H, and do not build. After minute 16 every field is settled and nothing is left to process; confirm the notice says the season closes in 45 s and the results open early with "Every field was settled and no straw was left to process."
@@ -250,7 +250,7 @@ Start from a fresh Play session. Times are minutes since the server started. To 
 3. Within 4 s the transplanter's board reads "Planting" with a progress bar, and one row turns into seedlings every 4 s, 5 credits each, until "Every row is planted".
 4. Press 8 and place the combine harvester beside the same field. Its board reads "Rice is growing". When rows ripen it harvests one every 5 s, pays 30 credits of grain each, and leaves a straw sheaf in the lane.
 5. Once straw lies on the field the transplanter reads "Clear the straw first" and does not plant. Collect the sheaves (or burn with H): it starts planting again on its own.
-6. Press F on a machine to pause it (board reads "Paused") and again to resume. Delete it with X and confirm the refund.
+6. Confirm the farm machines have no pause prompt. Delete one with X and confirm the refund.
 7. Buy a plot and place a transplanter beside it. In a two-player test, the other player's ghost beside your plot reads "This paddy belongs to another player." and the server refuses it.
 
 ### Week 6 research and tier 2 Studio play test

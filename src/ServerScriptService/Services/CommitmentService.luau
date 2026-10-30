@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CommitmentDefinitions = require(Shared:WaitForChild("CommitmentDefinitions"))
+local FieldArt = require(Shared:WaitForChild("FieldArt"))
 
 local FarmBoard = require(script.Parent:WaitForChild("FarmBoard"))
 local StrawSheaf = require(script.Parent:WaitForChild("StrawSheaf"))
@@ -131,12 +132,32 @@ local function syncSheaves(view: FarmView, remaining: number, burned: boolean)
 	end
 end
 
-local function setRiceVisible(model: Model, visible: boolean)
-	for _, child in model:GetChildren() do
+-- Shows the farm's rice rows as `asset` segments from the field art pack ("Stubble" after a
+-- harvest, "StubbleBurnt" after a fire, "PreparedRow" once the straw is gone). Without the pack
+-- the row parts stand in for stubble and hide otherwise.
+local function dressRows(model: Model, asset: string)
+	local old = model:FindFirstChild("RowArt")
+	if old then
+		old:Destroy()
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "RowArt"
+	for index, child in model:GetChildren() do
 		if child:IsA("BasePart") and child.Name == "RiceRow" then
-			child.Transparency = if visible then 0 else 1
+			-- Segments run along the row's longer side.
+			local alongX = child.Size.X > child.Size.Z
+			local bottom = child.CFrame
+				* CFrame.new(0, -child.Size.Y / 2, 0)
+				* (if alongX then CFrame.Angles(0, math.pi / 2, 0) else CFrame.new())
+			local strip =
+				FieldArt.Strip(asset, bottom, math.max(child.Size.X, child.Size.Z), index * 7919)
+			if strip then
+				strip.Parent = folder
+			end
+			child.Transparency = if strip or asset ~= "Stubble" then 1 else 0
 		end
 	end
+	folder.Parent = model
 end
 
 local function refreshFarm(farmId: string)
@@ -261,7 +282,7 @@ local function handleEvents(events: { any })
 				playerState:AdjustCredits(owner, event.credits, "Extension")
 			end
 		elseif event.type == "Completed" then
-			setRiceVisible(view.model, false)
+			dressRows(view.model, "PreparedRow")
 			if owner then
 				playerState:AdjustTrust(owner, event.trust)
 				playerState:AdjustCredits(owner, event.credits, "Bonus")
@@ -280,7 +301,7 @@ local function handleEvents(events: { any })
 			end
 		elseif event.type == "Regrown" then
 			-- A new harvest: fresh straw, standing rice rows, and a clean burn pad.
-			setRiceVisible(view.model, true)
+			dressRows(view.model, "Stubble")
 			view.burnPoint.Color = view.burnColor
 			spawnSheaves(event.farmId)
 			machineService:NotifyAll(
@@ -290,7 +311,7 @@ local function handleEvents(events: { any })
 				)
 			)
 		elseif event.type == "Burn" then
-			setRiceVisible(view.model, false)
+			dressRows(view.model, "StubbleBurnt")
 			view.burnPoint.Color = Color3.fromRGB(62, 58, 54)
 			if owner and event.trust ~= 0 then
 				playerState:AdjustTrust(owner, event.trust)
@@ -418,6 +439,7 @@ function CommitmentService:Initialize(
 				child.CanCollide = false
 			end
 		end
+		dressRows(model, "Stubble")
 		local oldCollect = collectionPoint:FindFirstChild("CollectPrompt")
 		if oldCollect then
 			oldCollect:Destroy()

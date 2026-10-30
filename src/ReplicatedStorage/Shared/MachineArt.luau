@@ -67,12 +67,27 @@ function MachineArt.Build(definitionId: string): Model?
 		return nil
 	end
 	MachineArtPalette.Apply(art)
+	-- Textured (v2) models: lamps, screens and the fire window glow, gauge glass shows through.
+	-- Studio's glTF import names the parts DY_Emissive, DY_Emissive2, ... inside DY_Emissive_Node,
+	-- and every v2 machine uses its own two-letter prefix (DY_, SH_, ...).
+	for _, descendant in art:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			if string.match(descendant.Name, "^%u%u_Emissive") then
+				descendant.Material = Enum.Material.Neon
+			elseif string.match(descendant.Name, "^%u%u_Glass") then
+				descendant.Transparency = 0.45
+			end
+		end
+	end
 
-	-- Studio imports the Blender FBX facing backwards, so the pivot carries a 180 degree turn
-	-- that puts the art's input side on the IN port (-X) and its output side on OUT (+X).
+	-- Studio's Import 3D turns models half around (Blender FBX and the three.js glTF alike), so the
+	-- pivot carries a 180 degree turn that puts the art's input side on the IN port (-X) and its
+	-- output side on OUT (+X). A model that already faces the game's way can carry the attribute
+	-- GameFrame to skip the turn.
 	local bottomCenter =
 		Vector3.new((minimum.X + maximum.X) / 2, minimum.Y, (minimum.Z + maximum.Z) / 2)
-	art.WorldPivot = CFrame.new(bottomCenter) * CFrame.Angles(0, math.pi, 0)
+	local turn = if source:GetAttribute("GameFrame") == true then 0 else math.pi
+	art.WorldPivot = CFrame.new(bottomCenter) * CFrame.Angles(0, turn, 0)
 	return art
 end
 

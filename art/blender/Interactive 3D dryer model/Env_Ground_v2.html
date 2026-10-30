@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV Ground v2 — terrain MaterialVariant sets</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#d6d7d4;color:#1c1d1b;font-family:"IBM Plex Mono",ui-monospace,monospace}
+  a{color:#1f6f6c}a:hover{color:#0f4846}
+  three-d-stage:not(:defined){visibility:hidden}
+  three-d-stage{height:100vh}
+  #busy{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:600 13px "IBM Plex Mono",monospace;color:#3b3d3a;pointer-events:none}
+  #gp{position:fixed;top:12px;left:12px;width:300px;max-width:calc(100vw - 24px);max-height:calc(100vh - 80px);overflow:auto;background:rgba(250,250,247,.95);border:1px solid rgba(0,0,0,.12);border-radius:6px;font-size:11px;line-height:1.45;box-sizing:border-box;z-index:5}
+  #gp header{padding:10px 12px 8px;border-bottom:1px solid rgba(0,0,0,.1);display:flex;justify-content:space-between;align-items:baseline}
+  #gp h1{margin:0;font:700 15px/1.1 "IBM Plex Sans Condensed",sans-serif;letter-spacing:.02em}
+  #gp .sec{padding:8px 12px;border-bottom:1px solid rgba(0,0,0,.08)}
+  #gp .lab{font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:10px;color:#5a5c58;margin-bottom:4px}
+  #gp .row{display:flex;flex-wrap:wrap;gap:4px}
+  #gp button{font:500 11px "IBM Plex Mono",monospace;padding:5px 7px;border:1px solid rgba(0,0,0,.18);background:#fff;border-radius:4px;cursor:pointer;color:#1c1d1b}
+  #gp button:hover{background:#eef3f2}#gp button.primary{background:#1f6f6c;color:#fff;border-color:#1f6f6c}
+  #gp table{width:100%;border-collapse:collapse}#gp td{padding:1px 2px}#gp td.r{text-align:right}
+  #gp .ok{color:#1f6f6c;font-weight:600}#gp .bad{color:#b3261e;font-weight:600}
+</style>
+</head>
+<body>
+<three-d-stage name="Env_Ground_v2" background="#d6d7d4"></three-d-stage>
+<div id="busy">Generating ground sets…</div>
+<aside id="gp">
+  <header><h1>EV GROUND · v2</h1><span style="color:#5a5c58">1024² · 8×8 studs/tile</span></header>
+  <div class="sec"><div class="row"><button id="allBtn">All patches</button><button id="dlBtn" class="primary">Download textures</button><span id="dlMsg" style="align-self:center;color:#5a5c58"></span></div></div>
+  <div class="sec"><div class="lab">Sets (click to view at ~20 studs)</div><div class="row" id="sets"></div></div>
+  <div class="sec"><div class="lab">Checks</div><table id="checks"></table></div>
+</aside>
+<script src="three-d-stage.js"></script>
+<script type="module">
+import { THREE, V3, TAU, makeNoise, field, normalCanvas, cv, wrapped, setSeed, rnd, rr, pick, clamp, lerp, sstep, prepStage } from './env_common.js';
+const stage = document.querySelector('three-d-stage');
+await stage.ready;
+prepStage(stage);
+const S = 1024, PX = S / 8; // 128 px per stud
+const busy = document.getElementById('busy'), tick = msg => new Promise(r => { busy.textContent = msg; const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
+
+/* periodic Voronoi: F1/F2 distances (in cell units) on a G×G wrap grid */
+function voronoi(G, seed) { setSeed(seed); const P = []; for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) P.push([rnd(), rnd()]);
+  return (u, v) => { const x = u * G, y = v * G, ci = Math.floor(x), cj = Math.floor(y); let f1 = 9, f2 = 9;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ii = ci + di, jj = cj + dj, p = P[((jj % G + G) % G) * G + ((ii % G + G) % G)], dx = ii + p[0] - x, dy = jj + p[1] - y, d = Math.hypot(dx, dy); if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d; }
+    return [f1, f2]; }; }
+const mix3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const put = (o, c, k = 1) => { o[0] = clamp(c[0] * k, 0, 255); o[1] = clamp(c[1] * k, 0, 255); o[2] = clamp(c[2] * k, 0, 255); };
+function strokes(cx, hx, n, fn) { cx.lineCap = 'round'; if (hx) hx.lineCap = 'round'; for (let i = 0; i < n; i++) { const s = fn(); if (!s) continue; const { x, y, dx, dy, w, col, h } = s; wrapped(S, S, x, y, Math.hypot(dx, dy) + w, (X, Y) => { cx.strokeStyle = col; cx.lineWidth = w; cx.beginPath(); cx.moveTo(X, Y); cx.lineTo(X + dx, Y + dy); cx.stroke(); if (hx) { hx.strokeStyle = `rgb(${h},${h},${h})`; hx.lineWidth = w; hx.beginPath(); hx.moveTo(X, Y); hx.lineTo(X + dx, Y + dy); hx.stroke(); } }); } }
+function dots(cx, hx, n, fn) { for (let i = 0; i < n; i++) { const s = fn(); if (!s) continue; const { x, y, r, col, h, ry = r, rot = 0 } = s; wrapped(S, S, x, y, r * 1.5, (X, Y) => { cx.fillStyle = col; cx.beginPath(); cx.ellipse(X, Y, r, ry, rot, 0, TAU); cx.fill(); if (hx) { const g = hx.createRadialGradient(X, Y, 0, X, Y, r); g.addColorStop(0, `rgb(${h},${h},${h})`); g.addColorStop(1, `rgba(${h},${h},${h},0)`); hx.fillStyle = g; hx.beginPath(); hx.ellipse(X, Y, r * 1.2, ry * 1.2, rot, 0, TAU); hx.fill(); } }); } }
+const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+function finish(color, height, roughFn, k) { const hd = height.getContext('2d').getImageData(0, 0, S, S).data, cd = color.getContext('2d').getImageData(0, 0, S, S).data;
+  const rough = field(S, S, (u, v, o, i, j) => { const q = (j * S + i) * 4, g = clamp(roughFn(u, v, hd[q] / 255, [cd[q], cd[q + 1], cd[q + 2]]), .02, 1) * 255; o[0] = o[1] = o[2] = g; });
+  return { color, height, normal: normalCanvas(height, k, true), rough }; }
+
+const SETS = {
+  Grass: () => { const nz = makeNoise(101); setSeed(101);
+    const dry = (u, v) => .25 + .5 * sstep(.3, .7, nz.fbm2(u, v, 4, 5)), bare = (u, v) => sstep(.64, .74, nz.fbm2(u + .3, v + .7, 6, 5));
+    const soil = [150, 104, 70], g1 = [86, 104, 46], g2 = [188, 162, 96];
+    const color = field(S, S, (u, v, o) => { const d = dry(u, v), b = bare(u, v), n = nz.fbm2(u, v, 32, 3); put(o, mix3(mix3(g1, g2, d), mix3(soil, [176, 140, 100], n), b), .82 + n * .3); });
+    const height = field(S, S, (u, v, o) => { o[0] = o[1] = o[2] = 70 + nz.fbm2(u, v, 16, 4) * 60 - bare(u, v) * 30; });
+    const cx = color.getContext('2d'), hx = height.getContext('2d');
+    dots(cx, hx, 900, () => { const x = rnd() * S, y = rnd() * S; if (bare(x / S, y / S) < .5) return null; const r = rr(2, 6); return { x, y, r, ry: r * rr(.6, 1), rot: rnd() * 3, col: rgb([rr(120, 170), rr(84, 110), rr(60, 80)]), h: 200 }; });
+    strokes(cx, hx, 42000, () => { const x = rnd() * S, y = rnd() * S, u = x / S, v = y / S, b = bare(u, v); if (rnd() < b * .9) return null; const d = dry(u, v), a = rr(0, TAU), L = rr(10, 34), base = mix3(g1, g2, clamp(d + rr(-.25, .25), 0, 1));
+      return { x, y, dx: Math.cos(a) * L, dy: Math.sin(a) * L, w: rr(1.4, 3), col: rgb(base.map(c => c * rr(.75, 1.25))), h: rr(130, 255) | 0 }; });
+    return finish(color, height, (u, v, h) => .9 - h * .08 + bare(u, v) * .04, 3); },
+  LeafyGrass: () => { const nz = makeNoise(102); setSeed(102);
+    const clump = (u, v) => nz.fbm2(u, v, 6, 4), c1 = [44, 92, 30], c2 = [104, 150, 52];
+    const color = field(S, S, (u, v, o) => { const n = clump(u, v), f = nz.fbm2(u, v, 40, 2); put(o, mix3([28, 54, 22], c1, sstep(.25, .6, n)), .8 + f * .3); });
+    const height = field(S, S, (u, v, o) => { o[0] = o[1] = o[2] = 60 + clump(u, v) * 80; });
+    const cx = color.getContext('2d'), hx = height.getContext('2d');
+    strokes(cx, hx, 60000, () => { const x = rnd() * S, y = rnd() * S, n = clump(x / S, y / S), a = rr(0, TAU), L = rr(12, 30), t = clamp(n + rr(-.3, .3), 0, 1);
+      return { x, y, dx: Math.cos(a) * L, dy: Math.sin(a) * L, w: rr(1.5, 3.2), col: rgb(mix3(c1, c2, t).map(c => c * rr(.8, 1.2))), h: (150 + t * 100) | 0 }; });
+    dots(cx, null, 120, () => ({ x: rnd() * S, y: rnd() * S, r: rr(1, 2), col: 'rgba(240,236,190,.7)' }));
+    return finish(color, height, (u, v, h) => .72 - h * .12, 2.5); },
+  Ground: () => { const nz = makeNoise(103); setSeed(103);
+    const rut = (u, v) => { let m = 0; for (const c of [.24, .74]) { const cu = c + .018 * Math.sin(TAU * v) + .01 * Math.sin(TAU * 2 * v + c * 9), d = Math.abs(((u - cu + 1.5) % 1) - .5) * 8; m = Math.max(m, 1 - sstep(.18, .42, d)); } return m; };
+    const base = [168, 86, 46], dust = [204, 150, 104], dark = [112, 56, 32];
+    const color = field(S, S, (u, v, o) => { const n = nz.fbm2(u, v, 4, 5), f = nz.fbm2(u, v, 48, 2), r = rut(u, v), tread = r * (Math.sin(v * TAU * 220) > .6 ? 1 : 0) * .08;
+      let c = mix3(base, dust, .25 + .35 * sstep(.4, .75, n)); c = mix3(c, dark, r * .25); put(o, c, .88 + f * .2 - tread); });
+    const height = field(S, S, (u, v, o) => { const r = rut(u, v); o[0] = o[1] = o[2] = 140 + (nz.fbm2(u, v, 16, 4) - .5) * 70 - r * 70 + (Math.sin(v * TAU * 220) > .6 ? r * 10 : 0); });
+    const cx = color.getContext('2d'), hx = height.getContext('2d');
+    dots(cx, hx, 2600, () => { const x = rnd() * S, y = rnd() * S, r = rnd() < .9 ? rr(1.5, 5) : rr(6, 12), inRut = rut(x / S, y / S); if (inRut > .5 && rnd() < .7) return null;
+      return { x, y, r, ry: r * rr(.65, 1), rot: rnd() * 3, col: rgb(pick([[120, 52, 30], [90, 44, 28], [150, 96, 66], [70, 40, 30]]).map(c => c * rr(.85, 1.15))), h: 255 }; });
+    strokes(cx, null, 400, () => { const x = rnd() * S, y = rnd() * S, a = rr(0, TAU), L = rr(8, 22); return { x, y, dx: Math.cos(a) * L, dy: Math.sin(a) * L, w: 1.5, col: 'rgba(200,170,100,.6)' }; });
+    return finish(color, height, (u, v, h) => .9 - rut(u, v) * .12 - h * .05, 3); },
+  Mud: () => { const nz = makeNoise(104); setSeed(104); const vor = voronoi(14, 104);
+    const crack = (u, v) => { const [a, b] = vor(u + (nz.fbm2(u, v, 8, 3) - .5) * .02, v + (nz.fbm2(v, u, 8, 3) - .5) * .02); return 1 - sstep(.02, .07, b - a); };
+    const clay = [118, 102, 86], lightC = [160, 146, 124];
+    const color = field(S, S, (u, v, o) => { const n = nz.fbm2(u, v, 5, 5), c = crack(u, v), f = nz.fbm2(u, v, 64, 2); let col = mix3(clay, lightC, sstep(.4, .7, n)); col = mix3(col, [52, 42, 34], c * .9); put(o, col, .88 + f * .2); });
+    const height = field(S, S, (u, v, o) => { const [a] = vor(u, v), c = crack(u, v); o[0] = o[1] = o[2] = 170 - c * 150 + (nz.fbm2(u, v, 16, 3) - .5) * 30 - a * 20; });
+    const cx = color.getContext('2d'), hx = height.getContext('2d'), rows = 9, sp = S / rows;
+    for (let j = 0; j < rows; j++) for (let i = 0; i < rows; i++) { const hxp = (i + .5) * sp + rr(-8, 8) + (j % 2) * 3, hyp = (j + .5) * sp + rr(-8, 8); if (rnd() < .06) continue;
+      dots(cx, hx, 1, () => ({ x: hxp, y: hyp, r: rr(14, 20), col: 'rgba(70,58,44,.55)', h: 150 }));
+      strokes(cx, hx, 34, () => { const a = rr(0, TAU), L = rr(4, 16), ox = rr(-9, 9), oy = rr(-9, 9); return { x: hxp + ox, y: hyp + oy, dx: Math.cos(a) * L, dy: Math.sin(a) * L, w: rr(1.6, 3.2), col: rgb([rr(170, 214), rr(140, 180), rr(80, 110)]), h: 255 }; });
+      dots(cx, hx, 10, () => ({ x: hxp + rr(-7, 7), y: hyp + rr(-7, 7), r: rr(1.6, 2.6), col: rgb([rr(190, 220), rr(160, 190), rr(100, 130)]), h: 255 })); }
+    strokes(cx, null, 1500, () => { const x = rnd() * S, y = rnd() * S, a = rr(0, TAU), L = rr(6, 26); return { x, y, dx: Math.cos(a) * L, dy: Math.sin(a) * L, w: rr(1, 2.2), col: `rgba(${rr(170, 210) | 0},${rr(140, 170) | 0},90,.55)` }; });
+    return finish(color, height, (u, v, h) => .88 - h * .06 + crack(u, v) * .05, 3.5); },
+  Sand: () => { const nz = makeNoise(105); setSeed(105);
+    const base = [204, 186, 156], dark = [176, 156, 124];
+    const color = field(S, S, (u, v, o) => { const n = nz.fbm2(u, v, 4, 5), g = nz.n2(u * 400, v * 400, 400), sweep = .5 + .5 * Math.sin(TAU * (u * 3 + nz.fbm2(u, v, 2, 3) * 2) * 6); put(o, mix3(dark, base, sstep(.3, .7, n)), .9 + (g - .5) * .16 + sweep * .03); });
+    const height = field(S, S, (u, v, o) => { const g = nz.n2(u * 400, v * 400, 400); o[0] = o[1] = o[2] = 128 + (nz.fbm2(u, v, 12, 4) - .5) * 50 + (g - .5) * 40; });
+    const cx = color.getContext('2d'), hx = height.getContext('2d');
+    dots(cx, hx, 1400, () => { const r = rr(1.2, 4.5); return { x: rnd() * S, y: rnd() * S, r, ry: r * rr(.6, 1), rot: rnd() * 3, col: rgb(pick([[168, 150, 126], [140, 120, 100], [214, 204, 186], [176, 122, 88]])), h: 230 }; });
+    strokes(cx, hx, 260, () => { const x = rnd() * S, y = rnd() * S, a = rr(0, TAU), L = rr(6, 20); return { x, y, dx: Math.cos(a) * L, dy: Math.sin(a) * L, w: 1.4, col: 'rgba(160,130,80,.5)', h: 160 }; });
+    return finish(color, height, (u, v, h) => .93 - h * .05, 2); },
+  Rock: () => { const nz = makeNoise(106); setSeed(106); const vor = voronoi(6, 106), vor2 = voronoi(17, 206);
+    const lat = (u, v) => sstep(.4, .6, nz.fbm2(u, v, 3, 5));
+    const color = field(S, S, (u, v, o) => { const L = lat(u, v), n = nz.fbm2(u, v, 8, 5), [a, b] = vor(u, v), joint = 1 - sstep(.015, .06, b - a), pit = sstep(.74, .82, nz.n2(u * 160, v * 160, 160)), sp = nz.n2(u * 300, v * 300, 300);
+      let gr = [146, 142, 136].map(c => c * (.86 + n * .26)); if (sp > .8) gr = [52, 50, 48]; else if (sp < .2) gr = [204, 192, 182];
+      let la = [150, 76, 44].map(c => c * (.75 + n * .5)); la = mix3(la, [70, 34, 22], pit * .8);
+      let c = mix3(gr, la, L); const lich = sstep(.62, .72, nz.fbm2(u + .5, v, 6, 4)) * (1 - L); c = mix3(c, [168, 166, 120], lich * .6); c = mix3(c, [40, 34, 30], joint * .85); put(o, c); });
+    const height = field(S, S, (u, v, o) => { const [a, b] = vor(u, v), [c2, d2] = vor2(u, v), joint = 1 - sstep(.015, .06, b - a), j2 = 1 - sstep(.01, .04, d2 - c2), L = lat(u, v), pit = sstep(.74, .82, nz.n2(u * 160, v * 160, 160));
+      o[0] = o[1] = o[2] = clamp(120 + (nz.fbm2(u, v, 12, 6) - .5) * 140 + (1 - a) * 12 - joint * 140 - j2 * 50 - pit * L * 90, 0, 255); });
+    return finish(color, height, (u, v, h) => .82 - h * .15, 5); },
+  Asphalt: () => { const nz = makeNoise(107); setSeed(107); const vor = voronoi(22, 107);
+    const patchMask = cv(S), pm = patchMask.getContext('2d'); pm.fillStyle = '#000'; pm.fillRect(0, 0, S, S); pm.fillStyle = '#fff'; const patches = [];
+    for (let i = 0; i < 1; i++) { const w = rr(260, 380), h = rr(200, 300), x = rnd() * S, y = rnd() * S; patches.push([x, y, w, h]); wrapped(S, S, x, y, Math.max(w, h), (X, Y) => { pm.beginPath(); pm.moveTo(X, Y); pm.lineTo(X + w, Y + rr(-20, 20)); pm.lineTo(X + w * rr(.9, 1.05), Y + h); pm.lineTo(X + rr(-15, 15), Y + h * rr(.9, 1.05)); pm.closePath(); pm.fill(); }); }
+    const pmd = pm.getImageData(0, 0, S, S).data;
+    const color = field(S, S, (u, v, o, i, j) => { const n = nz.fbm2(u, v, 8, 5), ag = nz.n2(u * 380, v * 380, 380), patch = pmd[(j * S + i) * 4] / 255, dusty = sstep(.55, .78, nz.fbm2(u + .2, v + .4, 2, 4)), [a, b] = vor(u, v), croc = (1 - sstep(.01, .04, b - a)) * sstep(.6, .75, nz.fbm2(u, v, 3, 3)) * (1 - patch);
+      let c = [74, 74, 72].map(x => x * (.82 + n * .35)); if (ag > .78) c = [150, 146, 138]; else if (ag < .14) c = [40, 40, 40]; c = mix3(c, [58, 58, 56], patch * .3); c = mix3(c, [168, 150, 120], dusty * .55 * (1 - patch * .5)); c = mix3(c, [24, 24, 24], croc * .9); put(o, c); });
+    const height = field(S, S, (u, v, o, i, j) => { const ag = nz.n2(u * 380, v * 380, 380), patch = pmd[(j * S + i) * 4] / 255, [a, b] = vor(u, v), croc = (1 - sstep(.01, .04, b - a)) * sstep(.6, .75, nz.fbm2(u, v, 3, 3)) * (1 - patch);
+      o[0] = o[1] = o[2] = 120 + (ag - .5) * 90 * (1 - patch * .6) + patch * 12 - croc * 100 + (nz.fbm2(u, v, 8, 3) - .5) * 30; });
+    const cx = color.getContext('2d'); cx.strokeStyle = 'rgba(24,24,24,.45)'; cx.lineWidth = 2.5; 
+    strokes(cx, height.getContext('2d'), 10, () => { const x = rnd() * S, y = rnd() * S, a = rr(0, TAU), L = rr(80, 260); return { x, y, dx: Math.cos(a) * L, dy: Math.sin(a) * L, w: rr(1.5, 3), col: 'rgba(18,18,18,.85)', h: 30 }; });
+    return finish(color, height, (u, v, h, c) => clamp(.78 - h * .1 + (c[0] > 120 ? .08 : 0), 0, 1), 2.5); },
+  Concrete: () => { const nz = makeNoise(108); setSeed(108);
+    const joint = (u, v) => { const d = x => Math.min(Math.abs(((x * 2) % 1)), 1 - Math.abs(((x * 2) % 1))) * 4; return 1 - sstep(.006, .016, Math.min(d(u), d(v))); };
+    const color = field(S, S, (u, v, o) => { const n = nz.fbm2(u, v, 4, 5), f = nz.n2(u * 300, v * 300, 300), broom = Math.sin(v * TAU * 360 + nz.fbm2(u, v, 4, 2) * 8) * .02, slab = (Math.floor(u * 2) + Math.floor(v * 2) * 3) % 4;
+      let c = [146, 142, 134].map(x => x * (.86 + n * .22 + slab * .015 + broom)); if (f > .82) c = c.map(x => x * .82); c = mix3(c, [62, 60, 56], joint(u, v)); put(o, c); });
+    const height = field(S, S, (u, v, o) => { o[0] = o[1] = o[2] = 150 + (nz.fbm2(u, v, 24, 3) - .5) * 30 + Math.sin(v * TAU * 360) * 6 - joint(u, v) * 140; });
+    const cx = color.getContext('2d');
+    for (let i = 0; i < 3; i++) { const x = rnd() * S, y = rnd() * S, r = rr(60, 160); wrapped(S, S, x, y, r, (X, Y) => { const g = cx.createRadialGradient(X, Y, 0, X, Y, r); g.addColorStop(0, 'rgba(30,26,20,.18)'); g.addColorStop(.7, 'rgba(30,26,20,.08)'); g.addColorStop(1, 'rgba(30,26,20,0)'); cx.fillStyle = g; cx.fillRect(X - r, Y - r, 2 * r, 2 * r); }); }
+    for (let t = 0; t < 4; t++) { const cxp = rnd() * S, cyp = rnd() * S, R = rr(260, 600), a0 = rnd() * TAU, span = rr(.6, 1.2), w = rr(18, 26); cx.lineWidth = 3;
+      for (const off of [-w / 2, w / 2]) for (let k = 0; k < 7; k++) { cx.strokeStyle = `rgba(28,28,28,${rr(.05, .1)})`; wrapped(S, S, cxp, cyp, R + 40, (X, Y) => { cx.beginPath(); cx.arc(X, Y, R + off + k * 2.5, a0, a0 + span); cx.stroke(); }); } }
+    for (let i = 0; i < 14; i++) { const x = rnd() * S, y = rnd() * S, r = rr(20, 70); wrapped(S, S, x, y, r, (X, Y) => { const g = cx.createRadialGradient(X, Y, 0, X, Y, r); g.addColorStop(0, 'rgba(190,160,100,.22)'); g.addColorStop(1, 'rgba(190,160,100,0)'); cx.fillStyle = g; cx.fillRect(X - r, Y - r, 2 * r, 2 * r); }); }
+    const cd = cx.getImageData(0, 0, S, S).data;
+    return finish(color, height, (u, v, h, c) => { const stain = 1 - (c[0] + c[1] + c[2]) / 3 / 150; return .82 - clamp(stain, 0, .5) * .5 - h * .04; }, 2); },
+};
+
+const results = {}, order = Object.keys(SETS);
+for (const k of order) { await tick(`Generating ${k}…`); try { results[k] = SETS[k](); } catch (e) { console.error('set failed', k, e); busy.textContent = `${k} failed: ${e.message}`; throw e; } }
+busy.remove();
+
+/* seamless check: compare opposite edges of each colour map */
+const seam = c => { const d = c.getContext('2d').getImageData(0, 0, S, S).data; let e = 0, ref = 0; const px = (i, j) => (j * S + i) * 4;
+  for (let j = 0; j < S; j += 4) { for (let ch = 0; ch < 3; ch++) { e += Math.abs(d[px(0, j) + ch] - d[px(S - 1, j) + ch]); ref += Math.abs(d[px(0, j) + ch] - d[px(1, j) + ch]); } }
+  for (let i = 0; i < S; i += 4) { for (let ch = 0; ch < 3; ch++) { e += Math.abs(d[px(i, 0) + ch] - d[px(i, S - 1) + ch]); ref += Math.abs(d[px(i, 0) + ch] - d[px(i, 1) + ch]); } }
+  return e / Math.max(1, ref); };
+
+/* patches: 64×64 studs each (8×8 tiles), adjacent 4×2 */
+const root = new THREE.Group(); root.name = 'GroundPreview';
+const patches = {};
+order.forEach((k, idx) => { const r = results[k], tex = (c, srgb) => { const t = new THREE.CanvasTexture(c); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 16; return t; };
+  const m = new THREE.MeshStandardMaterial({ map: tex(r.color, true), normalMap: tex(r.normal, false), roughnessMap: tex(r.rough, false), roughness: 1, metalness: 0 }); m.name = k;
+  const g = new THREE.PlaneGeometry(64, 64, 1, 1); g.rotateX(-Math.PI / 2); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 8, uv.getY(i) * 8);
+  const mesh = new THREE.Mesh(g, m); mesh.name = k; mesh.position.set(-96 + (idx % 4) * 64, .02, (idx < 4 ? -32 : 32)); root.add(mesh); patches[k] = mesh;
+  const lc = cv(512, 128), lx = lc.getContext('2d'); lx.fillStyle = 'rgba(250,250,247,.92)'; lx.fillRect(0, 0, 512, 128); lx.fillStyle = '#1c1d1b'; lx.font = '700 64px "IBM Plex Sans Condensed",sans-serif'; lx.textAlign = 'center'; lx.textBaseline = 'middle'; lx.fillText(k, 256, 66);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(lc), depthTest: false })); sp.scale.set(16, 4, 1); sp.position.set(mesh.position.x, 6, mesh.position.z); sp.userData.label = true; root.add(sp); });
+stage.setObject(root);
+root.traverse(o => { if (o.isSprite) o.castShadow = false; });
+const cam = stage._camera, ctl = stage._controls;
+const look = (pos, tgt) => { cam.position.copy(pos); ctl.target.copy(tgt); cam.near = .1; cam.far = 4000; cam.updateProjectionMatrix(); ctl.update(); };
+const labels = root.children.filter(o => o.isSprite), showLabels = on => labels.forEach(l => l.visible = on);
+const all = () => { showLabels(true); look(new V3(0, 150, -175), new V3(0, 0, 0)); };
+const focus = k => { showLabels(false); const p = patches[k].position; look(new V3(p.x - 3, 13, p.z - 19), new V3(p.x, 0, p.z + 3)); };
+const sets = document.getElementById('sets'); order.forEach(k => { const b = document.createElement('button'); b.textContent = k; b.onclick = () => focus(k); sets.appendChild(b); });
+document.getElementById('allBtn').onclick = all; all();
+const seams = Object.fromEntries(order.map(k => [k, seam(results[k].color)]));
+document.getElementById('checks').innerHTML = [['8 sets × Color/Normal/Roughness, 1024²', order.every(k => ['color', 'normal', 'rough'].every(m => results[k][m].width === 1024 && results[k][m].height === 1024))],
+  ...order.map(k => [`${k} seamless (edge Δ ${seams[k].toFixed(2)}× neighbour Δ)`, seams[k] < 1.6])].map(([t, ok]) => `<tr><td>${t}</td><td class="r ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</td></tr>`).join('');
+
+/* zip (store) of every PNG */
+const crcT = new Uint32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = crcT[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+async function zip(files) { const parts = [], cen = []; let off = 0; const enc = new TextEncoder();
+  for (const [name, data] of files) { const nb = enc.encode(name), crc = crc32(data), h = new DataView(new ArrayBuffer(30)); h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nb.length, true);
+    parts.push(new Uint8Array(h.buffer), nb, data); const c = new DataView(new ArrayBuffer(46)); c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nb.length, true); c.setUint32(42, off, true); cen.push(new Uint8Array(c.buffer), nb); off += 30 + nb.length + data.length; }
+  const cs = cen.reduce((a, b) => a + b.length, 0), e = new DataView(new ArrayBuffer(22)); e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cs, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...cen, new Uint8Array(e.buffer)], { type: 'application/zip' }); }
+const png = c => new Promise(r => c.toBlob(b => b.arrayBuffer().then(a => r(new Uint8Array(a))), 'image/png'));
+document.getElementById('dlBtn').onclick = async () => { const msg = document.getElementById('dlMsg'); const files = [];
+  for (const k of order) for (const [m, suf] of [['color', 'Color'], ['normal', 'Normal'], ['rough', 'Roughness']]) { msg.textContent = `${k}_${suf}…`; files.push([`Env_Ground_v2/${k}_${suf}.png`, await png(results[k][m])]); }
+  const blob = await zip(files), url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = 'Env_Ground_v2_textures.zip'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); msg.textContent = (blob.size / 1048576).toFixed(1) + ' MB'; };
+window.__ground = { order, seams, focus, all };
+window.__snap = () => { stage._renderer.setClearColor(0xd6d7d4, 1); stage._renderer.render(stage._scene, cam); let im = document.getElementById('evsnap'); if (!im) { im = document.createElement('img'); im.id = 'evsnap'; im.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:50;object-fit:cover'; document.body.appendChild(im); } im.src = stage._renderer.domElement.toDataURL('image/jpeg', .92); };
+</script>
+</body>
+</html>

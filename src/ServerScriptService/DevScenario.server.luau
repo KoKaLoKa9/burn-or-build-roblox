@@ -6,6 +6,8 @@
 --   "steam": solar, water pump, boiler, steam turbine, poles, water and steam pipes.
 --   "save":  "steam", then a save round trip through JSON (snapshot, wipe, rebuild) and a new year.
 --   "biogas": diesel start-up, pumps, cattle shed, digester, biogas engine and a market stall.
+--   "pipes":  the straw line (dryer, shredder, pellet mill, market stall) on diesel power, to
+--             watch straw bundles, shredded straw and pellet crates ride the pipes.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -302,8 +304,58 @@ local function buildBiogas()
 	say("engine peak kW", enginePeak, "stall sold", nodeOf("MarketStall").completedCycles)
 end
 
+local function buildPipes()
+	player:SetAttribute("Research_Market", true)
+	-- Machine faces sit on the 4-stud belt grid, so the end tiles stay clear of the machines.
+	MachineService:ImportLayout(player, {
+		machines = {
+			machine("DieselGenerator", -20, 136),
+			machine("PowerPole", -16, 120),
+			machine("PowerPole", 24, 120),
+			machine("Dryer", -40, 100),
+			machine("Shredder", -8, 100),
+			machine("PelletMill", 25, 100),
+			machine("MarketStall", 54, 100),
+		},
+		tiles = {},
+	})
+	local tiles = {}
+	for _, pair in
+		{ { "Dryer", "Shredder" }, { "Shredder", "PelletMill" }, { "PelletMill", "MarketStall" } }
+	do
+		for _, tile in route("Item", pair[1], "OutputPort", pair[2], "InputPort") do
+			table.insert(tiles, tile)
+		end
+	end
+	MachineService:ImportLayout(player, { machines = {}, tiles = tiles })
+	wire("PowerPole@-16,120", 1, "DieselGenerator")
+	wire("PowerPole@-16,120", 1, "Dryer")
+	wire("PowerPole@-16,120", 1, "Shredder")
+	wire("PowerPole@-16,120", 1, "PowerPole@24,120", 1)
+	wire("PowerPole@24,120", 1, "PelletMill")
+	local links = 0
+	for _ in line.links do
+		links += 1
+	end
+	say("built", #MachineService:ExportLayout(player).machines, "machines,", links, "belt links")
+	local character = player.Character
+	if character then
+		character:PivotTo(CFrame.lookAt(Vector3.new(0, 6, 135), Vector3.new(0, 6, 100)))
+	end
+	feed("Dryer", "WetStraw", 8)
+	feed("Shredder", "DryStraw", 4)
+	feed("PelletMill", "ShreddedStraw", 4)
+	for _ = 1, 60 do
+		task.wait(1)
+	end
+	report()
+	say("stall sold", nodeOf("MarketStall").completedCycles)
+end
+
 if scenario == "biogas" then
 	buildBiogas()
+elseif scenario == "pipes" then
+	buildPipes()
 else
 	buildSteam()
 end

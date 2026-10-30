@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV School v2 — Ban Na rural primary school</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#d6d7d4;color:#1c1d1b;font-family:"IBM Plex Mono",ui-monospace,monospace}
+  a{color:#1f6f6c}a:hover{color:#0f4846}
+  three-d-stage:not(:defined){visibility:hidden}
+  three-d-stage{height:100vh}
+  #busy{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:600 13px "IBM Plex Mono",monospace;color:#3b3d3a;pointer-events:none}
+</style>
+</head>
+<body>
+<three-d-stage name="Env_School_v2" background="#d6d7d4"></three-d-stage>
+<div id="busy">Building Ban Na School…</div>
+<script src="three-d-stage.js"></script>
+<script type="module">
+import { THREE, V3, TAU, DEG, DS, rnd, rr, lerp, cv, field, pbr, simpleSet, lib, makeNoise, blotch, specks, add, sub, pipe, beam, boxG, bboxG, cylG, alongX, alongZ, revolve, tubeG, makeAsset, prepStage, setupViewer } from './env_common.js';
+import { wall, door, steps, gableX, gableEnd, frameAt, waterJar, bicycle, pottedPlant } from './env_house_lib.js';
+import { frangipani, FM } from './env_flora_lib.js';
+const stage = document.querySelector('three-d-stage');
+await stage.ready;
+try { await Promise.all([document.fonts.load('700 40px "IBM Plex Sans Condensed"'), document.fonts.load('600 12px "IBM Plex Mono"')]); } catch (e) {}
+prepStage(stage);
+
+/* ---------- school materials: cream + red scheme ---------- */
+const tinted = (m, name, hex) => { const c = m.clone(); c.color.set(hex); c.name = name; c.userData = { ...m.userData, tint: false }; return c; };
+const SM = {
+  cream: tinted(lib.render, 'EV_SchoolCreamRender', 0xf3e4bc), red: lib.redPaint, roof: tinted(lib.tile, 'EV_SchoolRoofTile', 0xb5563c), tin: tinted(lib.tin, 'EV_HallRoofSheet', 0x9fb0b8),
+  frame: simpleSet('EV_SchoolWindowFrame', 0x9a2e24, { rough: .5, dirt: .15 }), floorTile: simpleSet('EV_CorridorTile', 0xb9a98e, { rough: .5, bump: 30 }),
+  steelBlue: simpleSet('EV_HallSteel', 0x395f86, { rough: .5, metal: true, rust: 4 }), white: lib.whitePaint, gold: lib.gold,
+  sign: (() => { const W = 1024, H = 256, c = cv(W, H), x = c.getContext('2d'); x.fillStyle = '#1e4f8a'; x.fillRect(0, 0, W, H); x.strokeStyle = '#e8c24a'; x.lineWidth = 12; x.strokeRect(14, 14, W - 28, H - 28);
+    x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = '700 120px "IBM Plex Sans Condensed",sans-serif'; x.fillText('โรงเรียนบ้านนา', W / 2, H * .44); x.fillStyle = '#e8c24a'; x.font = '600 38px "IBM Plex Sans Condensed",sans-serif'; x.fillText('BAN NA SCHOOL', W / 2, H * .8);
+    blotch(x, W, H, 10, [120, 120, 110], 40, 140, .15); const h = cv(W, H); h.getContext('2d').fillStyle = '#808080'; h.getContext('2d').fillRect(0, 0, W, H); return pbr('EV_SchoolSign', { color: c, height: h, k: .5, roughBase: .45, roughAmp: .05, rep: false }); })(),
+  flag: (() => { const W = 512, H = 340, c = cv(W, H), x = c.getContext('2d'), u = H / 6; [['#a51931', 0, 1], ['#f4f5f8', 1, 1], ['#2d2a4a', 2, 2], ['#f4f5f8', 4, 1], ['#a51931', 5, 1]].forEach(([col, y0, n]) => { x.fillStyle = col; x.fillRect(0, y0 * u, W, n * u + 1); });
+    const h = cv(W, H); h.getContext('2d').fillStyle = '#808080'; h.getContext('2d').fillRect(0, 0, W, H); return pbr('EV_ThaiFlag', { color: c, height: h, k: .5, roughBase: .85, roughAmp: .05, rep: false, side: DS }); })(),
+  pitch: (() => { const W = 1024, H = 512, nz = makeNoise(301), c = field(W, H, (u, v, o) => { const n = nz.fbm2(u * 2, v, 8, 5), worn = Math.max(Math.exp(-((u - .5) ** 2 + (v - .5) ** 2) * 40), Math.exp(-((u - .05) ** 2 * 60 + (v - .5) ** 2 * 30)), Math.exp(-((u - .95) ** 2 * 60 + (v - .5) ** 2 * 30))), g = [96 + n * 50, 124 + n * 40, 52 + n * 20], d = [168 + n * 30, 128 + n * 24, 88 + n * 16], t = Math.min(1, worn * 1.2 + (n > .66 ? .3 : 0)); for (let i = 0; i < 3; i++) o[i] = lerp(g[i], d[i], t); });
+    const x = c.getContext('2d'); x.strokeStyle = 'rgba(240,238,228,.85)'; x.lineWidth = 6; const m = 18; x.strokeRect(m, m, W - 2 * m, H - 2 * m); x.beginPath(); x.moveTo(W / 2, m); x.lineTo(W / 2, H - m); x.stroke(); x.beginPath(); x.arc(W / 2, H / 2, 70, 0, TAU); x.stroke();
+    for (const sx of [m, W - m]) { x.beginPath(); x.arc(sx, H / 2, 120, sx < W / 2 ? -Math.PI / 2 : Math.PI / 2, sx < W / 2 ? Math.PI / 2 : Math.PI * 1.5); x.stroke(); }
+    const h = field(256, 128, (u, v, o) => { o[0] = o[1] = o[2] = 128 + (nz.fbm2(u, v, 16, 3) - .5) * 80; }); const hh = cv(W, H); hh.getContext('2d').drawImage(h, 0, 0, W, H); return pbr('EV_PitchSurface', { color: c, height: hh, k: 2, roughBase: .9, roughAmp: .1, rep: false }); })(),
+  net: (() => { const S = 256, c = cv(S), x = c.getContext('2d'); x.strokeStyle = '#f2f2ee'; x.lineWidth = 3; for (let i = 0; i <= 8; i++) { x.beginPath(); x.moveTo(i * S / 8, 0); x.lineTo(i * S / 8, S); x.stroke(); x.beginPath(); x.moveTo(0, i * S / 8); x.lineTo(S, i * S / 8); x.stroke(); } const h = cv(S); h.getContext('2d').drawImage(c, 0, 0); return pbr('EV_GoalNet', { color: c, height: h, k: 1, roughBase: .9, roughAmp: .05, alpha: true, uv: 1 }); })(),
+  fence: (() => { const W = 512, H = 256, c = cv(W, H), x = c.getContext('2d'); x.fillStyle = '#3a4a3e'; for (let i = 0; i < 16; i++) x.fillRect(i * W / 16 + 4, 0, 7, H); x.fillRect(0, 10, W, 9); x.fillRect(0, H - 22, W, 9); const h = cv(W, H); h.getContext('2d').drawImage(c, 0, 0); return pbr('EV_FencePanel', { color: c, height: h, k: 1, roughBase: .5, roughAmp: .1, alpha: true, metal: true, rep: false }); })(),
+};
+
+/* ---------- red-framed glass-louvre classroom window ---------- */
+function classWindow(P, pos, outward, w, h, t) {
+  const s = frameAt(P('Windows'), pos, outward), d = frameAt(P('Windows'), pos, outward);
+  add(d, boxG(w, h, .02), DARK, [0, 0, t + .3]);
+  for (const sx of [-1, 1]) add(s, boxG(.12, h + .2, t + .06), SM.frame, [sx * (w / 2 + .06), 0, t / 2 - .03]); for (const sy of [-1, 1]) add(s, boxG(w + .36, .12, t + .06), SM.frame, [0, sy * (h / 2 + .06), t / 2 - .03]);
+  add(s, boxG(.08, h, .1), SM.frame, [0, 0, t * .3]); add(s, boxG(w + .5, .1, .35), SM.cream, [0, -h / 2 - .17, -.1]);
+  const n = 7;
+  const gl = frameAt(P('Glass'), pos, outward); for (let i = 0; i < n; i++) for (const sx of [-1, 1]) add(gl, boxG(w / 2 - .12, .22, .015), lib.glass, [sx * w / 4, -h / 2 + .2 + i * (h - .3) / (n - 1), t * .4], [.5, 0, 0]);
+}
+const DARK = simpleSet('EV_ClassroomDark', 0x1e1c19, { rough: .95, dirt: false });
+
+const school = makeAsset('EV_School_A', 3101, P => {
+  const cl = P('Classrooms'), rf = P('Roofs'), yd = P('Yard'), hl = P('Hall'), pr = P('Props');
+  // ===== two-storey classroom block along the back (+Z) =====
+  const X0 = -30, X1 = 30, zC = 10.5, zW = 13.6, zB = 19.8, t = .3, f1 = .6, f2 = 6.6, top = 12.6, nRoom = 7, rw = (X1 - X0) / nRoom;
+  add(cl, boxG(61, f1, 9.9), lib.concrete, [0, f1 / 2, (zC + zB) / 2 + .05]); add(cl, boxG(61, .05, 3.2), SM.floorTile, [0, f1 + .03, (zC + zW) / 2]);
+  add(cl, boxG(61, .4, 9.8), lib.concrete, [0, f2 + .2, (zC + zB) / 2]); add(cl, boxG(61.2, .5, .25), SM.red, [0, f2 + .2, zC - .1]); add(cl, boxG(61, .05, 3.2), SM.floorTile, [0, f2 + .43, (zC + zW) / 2]);
+  add(cl, boxG(61, .25, 9.8), lib.concrete, [0, top - .12, (zC + zB) / 2]); add(cl, boxG(61.2, .5, .25), SM.red, [0, top - .2, zC - .1]);
+  for (const [fy, ty] of [[f1, f2], [f2 + .4, top - .25]]) {
+    const ch = [], bh = [];
+    for (let r = 0; r < nRoom; r++) { const xa = X0 + r * rw; ch.push([xa + .8, xa + 2.6, fy, fy + 4.4], [xa + 3.4, xa + 5.8, fy + 1.8, fy + 4.2], [xa + 6.2, xa + 8.0, fy + 1.8, fy + 4.2]); bh.push([xa + 1.2, xa + 3.8, fy + 1.8, fy + 4.4], [xa + 4.8, xa + 7.4, fy + 1.8, fy + 4.4]); }
+    wall(cl, SM.cream, 'x', zW + t / 2, X0, X1, fy, ty, t, ch); wall(cl, SM.cream, 'x', zB + t / 2, X0, X1, fy, ty, t, bh);
+    for (const h of ch) { if (h[3] - h[2] > 4) door(P, [(h[0] + h[1]) / 2, fy, zW], '-z', h[1] - h[0], 4.4, t); else classWindow(P, [(h[0] + h[1]) / 2, (h[2] + h[3]) / 2, zW], '-z', h[1] - h[0], h[3] - h[2], t); }
+    for (const h of bh) classWindow(P, [(h[0] + h[1]) / 2, (h[2] + h[3]) / 2, zB + t], '+z', h[1] - h[0], h[3] - h[2], t);
+    for (let r = 1; r < nRoom; r++) add(P('Windows'), boxG(.2, ty - fy, zB - zW), DARK, [X0 + r * rw, (fy + ty) / 2, (zW + zB) / 2 + .15]);
+    add(cl, boxG(61, .3, .32), SM.red, [0, fy + .15, zW - .02]); }
+  for (const x of [X0 - t / 2, X1 + t / 2]) wall(cl, SM.cream, 'z', x, zW, zB + t, f1, top - .25, t);
+  for (let k = 0; k <= nRoom; k++) { const x = X0 + k * rw; add(cl, boxG(.6, top - f1, .6), SM.cream, [x, (top + f1) / 2, zC + .3]); add(cl, boxG(.7, .8, .7), SM.red, [x, f1 + .4, zC + .3]); add(cl, boxG(.7, .5, .7), SM.red, [x, f2 + .65, zC + .3]); }
+  for (let k = 0; k < nRoom; k++) { const xa = X0 + k * rw + .3, xb = xa + rw - .6; add(cl, boxG(xb - xa, 1.0, .25), SM.cream, [(xa + xb) / 2, f2 + .9, zC + .3]); add(cl, boxG(xb - xa, .12, .35), SM.red, [(xa + xb) / 2, f2 + 1.46, zC + .3]);
+    for (let i = 1; i < 6; i++) add(cl, cylG(.03, .03, .9, 5), lib.darkSteel, [xa + i * (xb - xa) / 6, f2 + 1.97, zC + .3]); pipe(cl, lib.darkSteel, [xa, f2 + 2.4, zC + .3], [xb, f2 + 2.4, zC + .3], .04, 6); }
+  const ridgeY = 15.55, zc = (zC + zB + t) / 2, half = 5.9, tn = Math.tan(32 * DEG); gableX(rf, SM.roof, -31.4, 31.4, zc, half, ridgeY, ridgeY - half * tn, .22);
+  for (const x of [X0 - t / 2, X1 + t / 2]) { gableEnd(cl, SM.cream, x, zC, zB + t, top, ridgeY - .1, t); add(cl, boxG(.1, .9, 1.6), SM.red, [x + Math.sign(x) * .2, 13.9, zc]); }
+  add(cl, boxG(62.8, .4, .14), SM.white, [0, ridgeY - half * tn - .1, zc - half]); add(cl, boxG(62.8, .4, .14), SM.white, [0, ridgeY - half * tn - .1, zc + half]);
+  // external stair at the east end, up to the first-floor corridor
+  add(cl, boxG(1.2, .4, 3.1), lib.concrete, [30.6, f2 + .2, (zC + zW) / 2]); const ns = 16, rise = (f2 + .4) / ns;
+  for (let i = 0; i < ns; i++) add(cl, boxG(.52, rise * (ns - i), 2.4), lib.concrete, [31.45 + i * .5, rise * (ns - i) / 2, (zC + zW) / 2 - .3]);
+  beam(cl, SM.red, [31.2, f2 + 1.4, zC + .4], [39.3, 1.3, zC + .4], .08, .08); for (let i = 0; i < ns; i += 3) add(cl, cylG(.04, .04, 1.0, 5), lib.darkSteel, [31.45 + i * .5, rise * (ns - i) + .5, zC + .4]);
+  // ===== single-storey block on the west side (corridor faces +X) =====
+  const sx0 = -39.1, sx1 = -33.1, sxc = -30.0, sz0 = -14, sz1 = 8, sTop = 5.4, sRw = (sz1 - sz0) / 3;
+  add(cl, boxG(9.4, f1, 22.4), lib.concrete, [-34.6, f1 / 2, (sz0 + sz1) / 2]); add(cl, boxG(3.0, .05, 22), SM.floorTile, [-31.6, f1 + .03, (sz0 + sz1) / 2]);
+  const sh = [], bh2 = []; for (let r = 0; r < 3; r++) { const za = sz0 + r * sRw; sh.push([za + .9, za + 2.7, f1, f1 + 4.2], [za + 3.6, za + 6.2, f1 + 1.6, f1 + 3.9]); bh2.push([za + 1.4, za + 4.0, f1 + 1.6, f1 + 3.9]); }
+  wall(cl, SM.cream, 'z', sx1 + t / 2, sz0, sz1, f1, sTop, t, sh); wall(cl, SM.cream, 'z', sx0 - t / 2, sz0, sz1, f1, sTop, t, bh2); wall(cl, SM.cream, 'x', sz0 - t / 2, sx0 - t, sx1 + t, f1, sTop, t); wall(cl, SM.cream, 'x', sz1 + t / 2, sx0 - t, sx1 + t, f1, sTop, t);
+  for (const h of sh) { if (h[3] - h[2] > 4) door(P, [sx1 + t, f1, (h[0] + h[1]) / 2], '+x', h[1] - h[0], 4.2, t); else classWindow(P, [sx1 + t, (h[2] + h[3]) / 2, (h[0] + h[1]) / 2], '+x', h[1] - h[0], h[3] - h[2], t); }
+  for (const h of bh2) classWindow(P, [sx0 - t, (h[2] + h[3]) / 2, (h[0] + h[1]) / 2], '-x', h[1] - h[0], h[3] - h[2], t);
+  for (let k = 0; k <= 3; k++) { const z = sz0 + k * sRw; add(cl, boxG(.5, sTop - f1, .5), SM.cream, [sxc, (sTop + f1) / 2, z]); add(cl, boxG(.6, .7, .6), SM.red, [sxc, f1 + .35, z]); }
+  add(cl, boxG(.4, .35, 22.4), SM.red, [sxc, sTop - .1, (sz0 + sz1) / 2]); add(cl, boxG(9.5, .2, 22.4), lib.concrete, [-34.6, sTop, (sz0 + sz1) / 2]);
+  { const hw = 4.9, ry = 8.2, xm = -34.45, a = Math.atan2(ry - sTop, hw), L = Math.hypot(hw, ry - sTop); for (const s of [-1, 1]) add(rf, boxG(L + .05, .2, 22.8), SM.roof, [xm + s * hw / 2, (ry + sTop) / 2 + .1, (sz0 + sz1) / 2], [0, 0, -s * a]);
+    add(rf, cylG(.2, .2, 22.6, 8, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(0), SM.roof, [xm, ry + .17, (sz0 + sz1) / 2]);
+    for (const z of [sz0 - t / 2, sz1 + t / 2]) { const sh3 = new THREE.Shape(); sh3.moveTo(sx0 - t, sTop); sh3.lineTo(sx1 + t, sTop); sh3.lineTo(xm, ry - .1); sh3.closePath(); const e = new THREE.ExtrudeGeometry(sh3, { depth: t, bevelEnabled: false }); e.translate(0, 0, z - t / 2); add(cl, e, SM.cream); } }
+  // ===== covered assembly hall (steel frame, sheet roof, stage) =====
+  const hx0 = 17.5, hx1 = 38, hz0 = -13.5, hz1 = 4.5, eave = 7.4, hRidge = 10.0, hxm = (hx0 + hx1) / 2;
+  add(hl, boxG(21.4, .3, 19), lib.concrete, [hxm, .15, (hz0 + hz1) / 2]);
+  for (const x of [hx0, hxm, hx1]) for (const z of [hz0, (hz0 + hz1) / 2, hz1]) { if (x === hxm && z === (hz0 + hz1) / 2) continue; add(hl, boxG(.5, eave, .08), SM.steelBlue, [x, eave / 2, z]); add(hl, boxG(.08, eave, .5), SM.steelBlue, [x, eave / 2, z]); add(hl, boxG(.8, .1, .8), lib.darkSteel, [x, .35, z]); }
+  for (let k = 0; k < 5; k++) { const z = lerp(hz0, hz1, k / 4); beam(hl, SM.steelBlue, [hx0 - .4, eave, z], [hxm, hRidge - .1, z], .2, .2); beam(hl, SM.steelBlue, [hx1 + .4, eave, z], [hxm, hRidge - .1, z], .2, .2); beam(hl, SM.steelBlue, [hx0, eave, z], [hx1, eave, z], .14, .14);
+    for (let i = 1; i < 6; i++) { const xa = lerp(hx0, hxm, i / 6), ya = lerp(eave, hRidge - .1, i / 6); beam(hl, SM.steelBlue, [xa, eave, z], [xa, ya, z], .06, .06); beam(hl, SM.steelBlue, [2 * hxm - xa, eave, z], [2 * hxm - xa, ya, z], .06, .06); } }
+  for (const z of [hz0, hz1]) beam(hl, SM.steelBlue, [hx0, eave, z], [hx1, eave, z], .2, .2); for (const x of [hx0, hx1]) beam(hl, SM.steelBlue, [x, eave, hz0], [x, eave, hz1], .2, .2);
+  { const L = Math.hypot(hxm - hx0 + 1.2, hRidge - eave + .45), a = Math.atan2(hRidge - eave + .45, hxm - hx0 + 1.2); for (const s of [-1, 1]) add(rf, boxG(L, .1, 19.6), SM.tin, [hxm + s * (hxm - hx0 + 1.2) / 2, (hRidge + eave - .45) / 2 + .15, (hz0 + hz1) / 2], [0, 0, -s * a]); }
+  add(hl, boxG(10, 1.2, 3.4), lib.concrete, [hxm, .9, hz1 - 1.9]); steps(hl, lib.concrete, hxm, hz1 - 3.6, -.5, 3, .3, 3, .3); add(hl, boxG(10, 4.5, .2), SM.red, [hxm, 3.75, hz1 - .2]); add(hl, boxG(10.2, .2, .3), SM.gold, [hxm, 6.0, hz1 - .2]);
+  for (let i = 0; i < 6; i++) add(hl, boxG(5.5, .1, 1.2), lib.woodRough, [hx0 + 4 + (i % 2) * 7, .9, hz0 + 3 + Math.floor(i / 2) * 3.4]);
+  // ===== yard, path, pitch, goals, flagpole, planters, fence + gate =====
+  add(yd, boxG(42, .2, 14.4), lib.concrete, [-5, .1, 3.2]); add(yd, boxG(4, .2, 18), lib.concrete, [6.5, .1, -13]);
+  const pm = new THREE.Mesh(new THREE.PlaneGeometry(30, 16), SM.pitch); pm.rotation.x = -Math.PI / 2; pm.position.set(-12, .03, -13.3); yd.add(pm);
+  for (const gx of [-26.6, 2.6]) { const s2 = Math.sign(gx + 12); const gs = sub(yd, [gx, 0, -13.3]); for (const z of [-2, 2]) add(gs, cylG(.07, .07, 2.3, 8), SM.white, [0, 1.15, z]); add(gs, alongZ(cylG(.07, .07, 4.1, 8)), SM.white, [0, 2.3, 0]);
+    const net = add(gs, boxG(.02, 2.3, 4), SM.net, [s2 * .9, 1.15, 0]); for (const z of [-2, 2]) beam(gs, SM.white, [0, 2.3, z], [s2 * .9, 0, z], .05, .05); add(gs, boxG(.9, 2.3, .02), SM.net, [s2 * .45, 1.15, -2]); add(gs, boxG(.9, 2.3, .02), SM.net, [s2 * .45, 1.15, 2]); }
+  const fp = [6.5, 0, -1.2]; for (let i = 0; i < 3; i++) add(yd, boxG(3.2 - i * .8, .3, 3.2 - i * .8), i === 1 ? SM.red : SM.cream, [fp[0], .2 + .3 * i + .15, fp[2]]);
+  add(yd, cylG(.07, .13, 13.2, 10), SM.white, [fp[0], 1.1 + 6.6, fp[2]]); add(yd, new THREE.SphereGeometry(.22, 10, 6), SM.gold, [fp[0], 14.4, fp[2]]); pipe(yd, lib.rubber, [fp[0] + .1, 1.2, fp[2]], [fp[0] + .1, 14.2, fp[2]], .015, 3);
+  { const W = 3.3, H = 2.2, g = new THREE.PlaneGeometry(W, H, 10, 1), p = g.attributes.position; for (let i = 0; i < p.count; i++) { const u = (p.getX(i) + W / 2) / W; p.setZ(i, Math.sin(u * 5.5) * .25 * u); } g.computeVertexNormals(); g.translate(W / 2 + .1, 0, 0); add(P('Flag'), g, SM.flag, [fp[0], 13.0, fp[2]]); }
+  const planters = [[14, -18], [24, -18.6], [34, -18.6], [-21, 6], [12.5, 7.5]];
+  planters.forEach(([x, z], i) => { add(yd, revolve([[1.8, 0], [1.8, .9], [1.55, .9], [1.55, .35], [0, .35]], 20), lib.concrete, [x, 0, z]); add(yd, cylG(1.55, 1.55, .05, 16), lib.soil, [x, .82, z]);
+    const tr = frangipani('A', 3200 + i, .78); tr.traverse(o => { if (o.isMesh) { const m = o.clone(); m.position.set(x, .8, z); m.rotation.y = i * 1.3; P('Trees').add(m); } }); });
+  for (let x = -39.5; x <= 39.6; x += 4) { if (x > 3 && x < 10) continue; add(yd, boxG(.4, 3.0, .4), SM.cream, [x, 1.5, -21.6]); add(yd, boxG(.5, .2, .5), SM.red, [x, 3.1, -21.6]); }
+  for (let x = -39.6; x < 39.6; x += 4) { const xa = x + .2, xb = x + 3.8; if (xb > 3.6 && xa < 9.4) continue; const m = new THREE.Mesh(new THREE.PlaneGeometry(xb - xa, 2.4), SM.fence); m.position.set((xa + xb) / 2, 1.5, -21.6); yd.add(m); }
+  add(yd, boxG(79.4, .5, .45), SM.cream, [0, .25, -21.6]);
+  for (const gx of [3.4, 9.6]) { add(yd, boxG(1.2, 5.2, 1.2), SM.cream, [gx, 2.6, -21.6]); add(yd, boxG(1.4, .3, 1.4), SM.red, [gx, 5.35, -21.6]); add(yd, revolve([[0, 0], [.45, 0], [.45, .2], [.2, .5], [0, .55]], 10), SM.gold, [gx, 5.5, -21.6]); }
+  add(yd, boxG(5.0, 1.4, .25), SM.sign, [6.5, 4.4, -21.85]); add(yd, boxG(5.3, .2, .4), SM.red, [6.5, 5.2, -21.7]); add(yd, boxG(5.3, .2, .4), SM.red, [6.5, 3.6, -21.7]);
+  for (const [hx, open] of [[4.0, -1.1], [9.0, .9]]) { const gt = sub(yd, [hx, 0, -21.6], [0, open, 0]), dir = hx < 6 ? 1 : -1; add(gt, boxG(2.5, .1, .08), lib.darkSteel, [dir * 1.25, .4, 0]); add(gt, boxG(2.5, .1, .08), lib.darkSteel, [dir * 1.25, 2.6, 0]); for (let i = 0; i <= 8; i++) add(gt, boxG(.05, 2.2, .05), lib.darkSteel, [dir * i * .31, 1.5, 0]); }
+  // props: bike rack + bicycles, wash trough, water tanks, benches
+  for (let i = 0; i < 3; i++) bicycle(pr, [-24 + i * 1.6, 0, 9.6], Math.PI / 2 + .05 * i);
+  add(pr, boxG(6, .9, 1.0), lib.concrete, [-14, .45, 9.0]); for (let i = 0; i < 5; i++) { pipe(pr, lib.chrome, [-16.4 + i * 1.2, .9, 9.4], [-16.4 + i * 1.2, 1.4, 9.4], .03, 5); pipe(pr, lib.chrome, [-16.4 + i * 1.2, 1.4, 9.4], [-16.4 + i * 1.2, 1.3, 9.1], .025, 5); }
+  for (const x of [34.5, 36.6]) { add(pr, cylG(1.0, 1.0, 2.4, 18), lib.chrome, [x, 4.8, 8.2]); add(pr, revolve([[1.0, 0], [.5, .25], [0, .3]], 18), lib.chrome, [x, 6.0, 8.2]); } for (const x of [33.3, 37.8]) for (const z of [7.2, 9.2]) add(pr, boxG(.15, 3.6, .15), lib.steel, [x, 1.8, z]); add(pr, boxG(5, .15, 2.4), lib.steel, [35.55, 3.6, 8.2]);
+  for (const [x, z, ry] of [[-6, -2.5, 0], [-16, -2.5, 0], [16, -1, Math.PI / 2]]) { const b = sub(pr, [x, .2, z], [0, ry, 0]); add(b, boxG(4, .25, .9), lib.concrete, [0, 1.1, 0]); for (const sx of [-1.6, 1.6]) add(b, boxG(.3, 1.0, .7), lib.concrete, [sx, .5, 0]); }
+  waterJar(pr, [-27.6, 0, 7.4], 1.0); pottedPlant(pr, [-28.6, .6, -12.8], 1.2); pottedPlant(pr, [29.2, .6, 11.2], 1.2); pottedPlant(pr, [-29.2, .6, 11.2], 1.2);
+});
+school.traverse(o => { if (o.isMesh && o.name === 'EV_School_A_Trees') o.name = 'EV_School_A_Trees'; });
+const root = new THREE.Group(); root.name = 'EV_SchoolPack'; root.add(school);
+document.getElementById('busy').remove();
+setupViewer(stage, root, { title: 'EV SCHOOL · v2', specs: { EV_School_A: { w: [72, 80], h: [12, 16], d: [38, 44], budget: [35000, 60000] } }, filename: 'Env_School_v2.glb', focusDir: [.45, .55, -1] });
+window.__views = { front: [[18, 30, -70], [0, 4, 0]], gate: [[14, 8, -38], [6.5, 4, -20]], block: [[-12, 12, -10], [0, 7, 14]], hall: [[44, 14, -28], [28, 4, -5]], pitch: [[-12, 18, -36], [-12, 0, -13]] };
+window.__look = k => { const [p, t] = window.__views[k], cam = stage._camera, ctl = stage._controls; cam.position.set(...p); ctl.target.set(...t); cam.near = .1; cam.far = 3000; cam.updateProjectionMatrix(); ctl.update(); };
+</script>
+</body>
+</html>

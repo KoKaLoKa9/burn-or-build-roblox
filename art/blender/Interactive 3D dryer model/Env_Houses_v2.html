@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV Houses v2 — Thai village houses</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#d6d7d4;color:#1c1d1b;font-family:"IBM Plex Mono",ui-monospace,monospace}
+  a{color:#1f6f6c}a:hover{color:#0f4846}
+  three-d-stage:not(:defined){visibility:hidden}
+  three-d-stage{height:100vh}
+  #busy{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:600 13px "IBM Plex Mono",monospace;color:#3b3d3a;pointer-events:none}
+</style>
+</head>
+<body>
+<three-d-stage name="Env_Houses_v2" background="#d6d7d4"></three-d-stage>
+<div id="busy">Building the village…</div>
+<script src="three-d-stage.js"></script>
+<script type="module">
+import { THREE, prepStage, layoutRows, setupViewer } from './env_common.js';
+import * as H from './env_house_lib.js';
+const stage = document.querySelector('three-d-stage');
+await stage.ready;
+try { await Promise.all([document.fonts.load('700 40px "IBM Plex Sans Condensed"'), document.fonts.load('600 12px "IBM Plex Mono"')]); } catch (e) {}
+prepStage(stage);
+const fix = (v, lo = .85) => [v * lo, v], B = [6000, 15000];
+const list = [[H.stiltHouse(), [24, 18, 18]], [H.concreteHouse(), [22, 12, 16]], [H.shophouse(), [16, 22, 18]], [H.farmhouse(), [18, 11, 14]]];
+const root = new THREE.Group(); root.name = 'EV_HousesPack'; const specs = {};
+for (const [g, [w, hh, d]] of list) { root.add(g); specs[g.name] = { w: fix(w), h: fix(hh), d: fix(d), budget: B }; }
+layoutRows(root, [['EV_StiltHouse_A', 'EV_ConcreteHouse_A', 'EV_Shophouse_A', 'EV_Farmhouse_A']], 8);
+document.getElementById('busy').remove();
+setupViewer(stage, root, { title: 'EV HOUSES · v2', specs, filename: 'Env_Houses_v2.glb', focusDir: [.55, .38, -1], tintPalette: [0xd8c39a, 0x9db8a6, 0xc4805e, 0xb4c0cc, 0xe2d6a2, 0x9a5a48] });
+</script>
+</body>
+</html>

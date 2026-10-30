@@ -13,6 +13,9 @@
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local FieldArt = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FieldArt"))
 
 local FarmBoard = require(script.Parent:WaitForChild("FarmBoard"))
 local StrawSheaf = require(script.Parent:WaitForChild("StrawSheaf"))
@@ -33,26 +36,36 @@ local Colors = FarmBoard.Colors
 local SHEAF_DEPTHS = { -0.31, 0.19, -0.09, 0.34, -0.22, 0.06, 0.28, -0.37 }
 
 -- Planted rice fills most of its lane like a real paddy; bare and stubble rows stay narrow so
--- the straw sheaves have room in the lanes between them.
-type Look = { width: number, height: number, color: Color3, material: Enum.Material }
+-- the straw sheaves have room in the lanes between them. With the field art pack imported, each
+-- row is drawn by repeating the stage's textured segment (`art`) and the row part turns invisible.
+type Look = {
+	width: number,
+	height: number,
+	color: Color3,
+	material: Enum.Material,
+	art: string,
+}
 local NARROW, WIDE = 2.2, 6.4
 local EMPTY_LOOK: Look = {
 	width = NARROW,
 	height = 0.5,
 	color = Color3.fromRGB(104, 80, 56),
 	material = Enum.Material.Ground,
+	art = "PreparedRow",
 }
 local STUBBLE_LOOK: Look = {
 	width = NARROW,
 	height = 1.2,
 	color = Color3.fromRGB(198, 160, 82),
 	material = Enum.Material.Grass,
+	art = "Stubble",
 }
 local RIPE_LOOK: Look = {
 	width = WIDE,
 	height = 3.4,
 	color = Color3.fromRGB(228, 188, 72),
 	material = Enum.Material.Grass,
+	art = "RiceRipe",
 }
 
 type Row = {
@@ -65,6 +78,9 @@ type Row = {
 	growSeconds: number,
 	grain: number,
 	prompt: ProximityPrompt,
+	-- The textured segments drawn along the row, and which asset they are.
+	art: Model?,
+	artAsset: string?,
 }
 
 export type Options = {
@@ -172,21 +188,42 @@ function PaddyField.Prompt(
 	return prompt
 end
 
+-- Swaps the row's textured segments for `asset` ones (a segment name such as "RiceRipe").
+local function dress(row: Row, asset: string)
+	if row.artAsset == asset then
+		return
+	end
+	row.artAsset = asset
+	if row.art then
+		row.art:Destroy()
+		row.art = nil
+	end
+	local strip = FieldArt.Strip(asset, row.bottom, row.part.Size.Z, row.index * 7919)
+	if strip then
+		strip.Name = "RowArt"
+		strip.Parent = row.part.Parent
+		row.art = strip
+	end
+	row.part.Transparency = if strip then 1 else 0
+end
+
 local function setLook(
 	row: Row,
 	width: number,
 	height: number,
 	color: Color3,
-	material: Enum.Material
+	material: Enum.Material,
+	art: string
 )
 	row.part.Size = Vector3.new(width, height, row.part.Size.Z)
 	row.part.CFrame = row.bottom * CFrame.new(0, height / 2, 0)
 	row.part.Color = color
 	row.part.Material = material
+	dress(row, art)
 end
 
 local function applyLook(row: Row, look: Look)
-	setLook(row, look.width, look.height, look.color, look.material)
+	setLook(row, look.width, look.height, look.color, look.material, look.art)
 end
 
 function PaddyField.new(options: Options): Handle
@@ -499,6 +536,7 @@ function PaddyField.new(options: Options): Handle
 		for _, row in rows do
 			if row.stage == "Stubble" then
 				row.part.Color = CHARRED
+				dress(row, "StubbleBurnt")
 			end
 		end
 
@@ -593,7 +631,7 @@ function PaddyField.new(options: Options): Handle
 		row.grain = math.max(1, math.floor(soilLevel().GrainCredits * yieldNow() + 0.5))
 		rowsPlanted += 1
 		model:SetAttribute("RowsPlanted", rowsPlanted)
-		setLook(row, WIDE, 1, SEEDLING, Enum.Material.LeafyGrass)
+		setLook(row, WIDE, 1, SEEDLING, Enum.Material.LeafyGrass, "RiceSeedling")
 		refreshPrompts()
 		refreshBoard()
 		return true, ""
@@ -739,7 +777,11 @@ function PaddyField.new(options: Options): Handle
 							WIDE,
 							1 + grown * 2.2,
 							SEEDLING:Lerp(GROWN, grown),
-							Enum.Material.LeafyGrass
+							Enum.Material.LeafyGrass,
+							if grown < 0.3
+								then "RiceSeedling"
+								elseif grown < 0.7 then "RiceGrowing"
+								else "RiceHeading"
 						)
 					end
 				end
