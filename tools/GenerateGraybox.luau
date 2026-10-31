@@ -1,5 +1,18 @@
--- Run once in the Roblox Studio Command Bar while not playing.
+-- Run once in the Roblox Studio Command Bar while not playing:
+--   require(game.ServerStorage.EditorTools.GenerateGraybox)()
 -- This deletes and recreates only Workspace.BurnOrBuildWorld.
+--
+-- Map v2 (district 780 x 630 studs). North is -Z and the wind blows east (+X). The canal runs
+-- along the north edge. Between it and the main road the three farms stand in a row, distant
+-- Farm C in the west, then your Farm A, then near Farm B, with the cattle pen, the village and the
+-- school downwind at the east end. South of the road are the start, the paddy plots for sale and
+-- the cooperative factory. The straw collection point sits on the factory floor's west edge and
+-- the buyer depot stands against its east edge, so belts reach both directly.
+--
+-- Every gameplay part keeps the graybox name the services look for. Positions that the services
+-- also hold as constants: MachineService INTAKE_POSITION, VillageService PEN_CENTER,
+-- WorldArtService VILLAGE_CENTER and VILLAGE_LAYOUT, GameConfig.Plots.Lots, and the
+-- EnvironmentService district, canal and house band. Change them together.
 
 return function()
 	local Workspace = game:GetService("Workspace")
@@ -12,7 +25,7 @@ return function()
 
 	local world = Instance.new("Model")
 	world.Name = "BurnOrBuildWorld"
-	world:SetAttribute("WorldVersion", "GateB-Graybox-01")
+	world:SetAttribute("WorldVersion", "Map-v2")
 	world.Parent = Workspace
 
 	local function part(name, size, position, color, material, parent)
@@ -56,6 +69,8 @@ return function()
 		return textLabel
 	end
 
+	-- A harvested field: the straw area, nine rice rows spread across it, and at its front (the
+	-- road side, +Z) the truck stop and the burn spot.
 	local function createFarm(name, displayName, center, fieldSize, accent, isPlayerFarm)
 		local farm = Instance.new("Model")
 		farm.Name = name
@@ -71,11 +86,12 @@ return function()
 		)
 		farm.PrimaryPart = field
 
+		local spacing = (fieldSize.X - 20) / 8
 		for row = -4, 4 do
 			part(
 				"RiceRow",
 				Vector3.new(2.2, 2.4, fieldSize.Y - 8),
-				center + Vector3.new(row * 9, 2, 0),
+				center + Vector3.new(row * spacing, 2, 0),
 				Color3.fromRGB(222, 181, 66),
 				Enum.Material.Grass,
 				farm
@@ -128,71 +144,76 @@ return function()
 
 	part(
 		"DistrictGround",
-		Vector3.new(520, 2, 420),
+		Vector3.new(780, 2, 630),
 		Vector3.new(0, -1, 0),
 		Color3.fromRGB(118, 148, 82),
 		Enum.Material.Grass,
 		world
 	)
 
+	-- Main road east to west through the middle; the factory road runs south from it to the
+	-- factory floor's north edge.
 	part(
 		"MainRoad",
-		Vector3.new(500, 1, 24),
-		Vector3.new(0, 0.15, 55),
+		Vector3.new(760, 1, 24),
+		Vector3.new(0, 0.15, 0),
 		Color3.fromRGB(104, 94, 78),
 		Enum.Material.Ground,
 		world
 	)
 	part(
 		"FactoryRoad",
-		Vector3.new(24, 1.1, 300),
-		Vector3.new(20, 0.2, 55),
+		Vector3.new(24, 1.1, 40),
+		Vector3.new(18, 0.2, 31),
 		Color3.fromRGB(104, 94, 78),
 		Enum.Material.Ground,
 		world
 	)
 	local canal = part(
 		"Canal",
-		Vector3.new(500, 0.8, 14),
-		Vector3.new(0, 0.05, -145),
+		Vector3.new(780, 0.8, 16),
+		Vector3.new(0, 0.05, -260),
 		Color3.fromRGB(56, 139, 164),
 		Enum.Material.Glass,
 		world
 	)
 	canal.Transparency = 0.2
 
+	-- Farms west to east, fronts on the farm track at z -55.
+	createFarm(
+		"Farm_C",
+		"DISTANT FARM",
+		Vector3.new(-310, 0, -115),
+		Vector2.new(120, 90),
+		Color3.fromRGB(226, 128, 47),
+		false
+	)
 	createFarm(
 		"Farm_A",
 		"YOUR FARM",
-		Vector3.new(-150, 0, -75),
-		Vector2.new(100, 72),
+		Vector3.new(-165, 0, -115),
+		Vector2.new(120, 90),
 		Color3.fromRGB(226, 91, 47),
 		true
 	)
 	createFarm(
 		"Farm_B",
 		"NEAR FARM",
-		Vector3.new(-25, 0, -75),
-		Vector2.new(90, 72),
-		Color3.fromRGB(226, 128, 47),
-		false
-	)
-	createFarm(
-		"Farm_C",
-		"DISTANT FARM",
-		Vector3.new(105, 0, -75),
-		Vector2.new(105, 72),
+		Vector3.new(-30, 0, -115),
+		Vector2.new(110, 90),
 		Color3.fromRGB(226, 128, 47),
 		false
 	)
 
+	-- The factory floor's edges sit on conveyor cell boundaries (cells are 4 studs, centred on
+	-- multiples of 4), so the intake and the depot bays line up with belt tiles.
 	local factory = Instance.new("Model")
 	factory.Name = "CooperativeFactory"
 	factory.Parent = world
 	local factoryFloor = part(
 		"FactoryFloor",
-		Vector3.new(175, 1, 115),
-		Vector3.new(15, 0.5, 130),
+		Vector3.new(240, 1, 160),
+		Vector3.new(18, 0.5, 130),
 		Color3.fromRGB(178, 176, 163),
 		Enum.Material.Concrete,
 		factory
@@ -200,61 +221,15 @@ return function()
 	factory.PrimaryPart = factoryFloor
 	label(factoryFloor, "COOPERATIVE FACTORY\nSNAP GRID", Color3.fromRGB(217, 255, 244), 280)
 
-	for x = -65, 95, 20 do
-		local gridLine = part(
-			"GridLine",
-			Vector3.new(0.35, 0.08, 105),
-			Vector3.new(x, 1.05, 130),
-			Color3.fromRGB(52, 125, 115),
-			Enum.Material.Neon,
-			factory
-		)
-		gridLine.CanCollide = false
-	end
-	for z = 85, 175, 20 do
-		local gridLine = part(
-			"GridLine",
-			Vector3.new(165, 0.08, 0.35),
-			Vector3.new(15, 1.06, z),
-			Color3.fromRGB(52, 125, 115),
-			Enum.Material.Neon,
-			factory
-		)
-		gridLine.CanCollide = false
-	end
-
-	createBuilding(
-		"DryerPlaceholder",
-		Vector3.new(-45, 1, 120),
-		Vector3.new(26, 18, 24),
-		Color3.fromRGB(219, 157, 55),
-		"DRYER",
-		factory
-	)
-	createBuilding(
-		"ShredderPlaceholder",
-		Vector3.new(5, 1, 120),
-		Vector3.new(26, 14, 24),
-		Color3.fromRGB(58, 98, 93),
-		"SHREDDER",
-		factory
-	)
-	createBuilding(
-		"PelletMillPlaceholder",
-		Vector3.new(55, 1, 120),
-		Vector3.new(28, 22, 26),
-		Color3.fromRGB(43, 63, 59),
-		"PELLET MILL",
-		factory
-	)
-
+	-- Village, school and exposure zone, downwind of every farm. The exposure zone is the area the
+	-- smoke is judged against.
 	local village = Instance.new("Model")
 	village.Name = "Village"
 	village.Parent = world
 	local exposureZone = part(
 		"ExposureZone",
-		Vector3.new(100, 1, 95),
-		Vector3.new(185, 0.3, -30),
+		Vector3.new(200, 1, 150),
+		Vector3.new(255, 0.3, -125),
 		Color3.fromRGB(224, 208, 166),
 		Enum.Material.Sand,
 		village
@@ -263,16 +238,11 @@ return function()
 	exposureZone.CanCollide = false
 	label(exposureZone, "VILLAGE + SCHOOL\nEXPOSURE ZONE", Color3.fromRGB(255, 231, 207), 260)
 
-	for index, offset in
-		{
-			Vector3.new(-30, 0, -22),
-			Vector3.new(12, 0, -24),
-			Vector3.new(-24, 0, 22),
-		}
-	do
+	-- WorldArtService:PrepareVillage grows the houses and turns the school block into the campus.
+	for index, x in { 195, 255, 315 } do
 		createBuilding(
 			"House_" .. index,
-			exposureZone.Position + offset,
+			Vector3.new(x, 0, -170),
 			Vector3.new(22, 12, 18),
 			Color3.fromRGB(211, 161, 98),
 			"HOUSE",
@@ -281,27 +251,29 @@ return function()
 	end
 	createBuilding(
 		"School",
-		exposureZone.Position + Vector3.new(25, 0, 20),
+		Vector3.new(255, 0, -95),
 		Vector3.new(34, 16, 22),
 		Color3.fromRGB(228, 218, 186),
 		"SCHOOL",
 		village
 	)
 
+	-- The buyer depot's west wall (its loading dock) stands on the factory floor's east edge, x 138.
+	-- The body is the depot model's size; WorldArtService only dresses it.
 	local buyer = createBuilding(
 		"PelletBuyer",
-		Vector3.new(165, 1, 145),
+		Vector3.new(160, 1, 128),
 		Vector3.new(44, 20, 36),
 		Color3.fromRGB(45, 131, 119),
 		"PELLET BUYER",
 		world
 	)
-	buyer:SetAttribute("Purpose", "Future pellet sales")
+	buyer:SetAttribute("Purpose", "Pellet sales")
 
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Name = "PlayerSpawn"
 	spawn.Size = Vector3.new(12, 1, 12)
-	spawn.Position = Vector3.new(-150, 1, 5)
+	spawn.Position = Vector3.new(-140, 1, -32)
 	spawn.Anchored = true
 	spawn.Neutral = true
 	spawn.Color = Color3.fromRGB(47, 155, 123)
@@ -312,7 +284,7 @@ return function()
 	local windSign = part(
 		"WindSign",
 		Vector3.new(38, 8, 2),
-		Vector3.new(60, 9, 10),
+		Vector3.new(100, 9, 30),
 		Color3.fromRGB(31, 69, 66),
 		Enum.Material.Metal,
 		world
@@ -325,5 +297,5 @@ return function()
 	Lighting.EnvironmentSpecularScale = 0.35
 	Workspace.FallenPartsDestroyHeight = -100
 
-	print("Burn or Build graybox created: GateB-Graybox-01")
+	print("Burn or Build world created: Map-v2")
 end

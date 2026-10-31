@@ -32,8 +32,8 @@ local ProductionLine = require(Simulation:WaitForChild("ProductionLine"))
 local MachineService = {}
 
 local TICK_SECONDS = 0.2
--- Placed so its OUT port lines up with a conveyor cell.
-local INTAKE_POSITION = Vector3.new(-60, 1.5, 92)
+-- On the factory floor's west edge (map v2), placed so its OUT port lines up with a conveyor cell.
+local INTAKE_POSITION = Vector3.new(-88, 1.5, 100)
 local ROAD_NAMES = { "MainRoad", "FactoryRoad" }
 local STORAGE_FILTER_CYCLE: { string } = { "WetStraw", "DryStraw", "ShreddedStraw" }
 -- The graybox's fixed machine placeholders. Players build their own line, so they are removed.
@@ -893,9 +893,20 @@ local function overlaps(a: PlacementRules.Rect, b: PlacementRules.Rect): boolean
 	return a.minX < b.maxX and a.maxX > b.minX and a.minZ < b.maxZ and a.maxZ > b.minZ
 end
 
--- Belts may run anywhere on the factory plot, plus a corridor out to the fixed pellet buyer.
+-- Belts may run anywhere on the factory plot, plus the strip along the plot's east edge in front
+-- of the buyer depot's bays, which the plot margin would otherwise keep belts out of.
+local buyerRect: PlacementRules.Rect? = nil
 local function buyerCorridor(): PlacementRules.Rect
-	return { minX = plotRect.maxX - 8, maxX = 152, minZ = 118, maxZ = 172 }
+	local buyer = buyerRect
+	if buyer == nil then
+		return { minX = 0, maxX = 0, minZ = 0, maxZ = 0 }
+	end
+	return {
+		minX = plotRect.maxX - 8,
+		maxX = math.max(plotRect.maxX, buyer.minX),
+		minZ = buyer.minZ,
+		maxZ = buyer.maxZ,
+	}
 end
 
 local function signatureOf(cells: { string }): string
@@ -1292,10 +1303,18 @@ local function createBuyer(world: Model)
 		end
 	end
 	createMachinePorts(buyer, body.CFrame, body.Size, MachineDefinitions.BuyerDepot)
+	buyerRect = PlacementRules.RectFromPart(body)
+	-- The covered warehouse model replaces the plain block when it has been imported.
+	attachArt("BuyerDepot", buyer, body)
 
 	local node = line:AddNode("BuyerDepot", nil)
-	-- Sized for the enlarged depot so the board reads as part of the landmark.
+	-- The depot is a landmark that needs no sign; the HUD counts crates sold. The board still
+	-- exists for register, just hidden.
 	local statusLabel = createWorldLabel(body, 36, 10.8, body.Size.Y / 2 + 7, 220)
+	local board = statusLabel.Parent
+	if board and board:IsA("BillboardGui") then
+		board.Enabled = false
+	end
 	register(node, buyer, statusLabel, 0, nil)
 end
 

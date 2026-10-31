@@ -102,12 +102,13 @@ local GameConfig = {
 		Rows = 5,
 		Width = 50,
 		Depth = 40,
-		-- Lots on open land between the main road and the factory, near the start. Front is the
+		-- Lots on open land south of the main road, west of the factory and across from the start.
+		-- Front is the
 		-- side the row ends, sign, and burn spot face (-1 is north, toward the road).
 		Lots = {
-			{ Name = "Plot 1", X = -120, Z = 106, Front = -1 },
-			{ Name = "Plot 2", X = -186, Z = 106, Front = -1 },
-			{ Name = "Plot 3", X = -153, Z = 168, Front = -1 },
+			{ Name = "Plot 1", X = -150, Z = 52, Front = -1 },
+			{ Name = "Plot 2", X = -216, Z = 52, Front = -1 },
+			{ Name = "Plot 3", X = -183, Z = 114, Front = -1 },
 		},
 	},
 }

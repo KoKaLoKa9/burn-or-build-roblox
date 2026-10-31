@@ -1,8 +1,9 @@
 --!strict
 
--- Dresses the graybox district with the imported building models: the pellet buyer depot, the
--- village houses, and the school. Each graybox block stays as an invisible collision box and keeps
--- its label, so gameplay and exposure zones do not change. Missing art leaves the block as it was.
+-- Dresses the graybox district with the imported building models: the village houses and the
+-- school. Each graybox block stays as an invisible collision box and keeps its label, so gameplay
+-- and exposure zones do not change. Missing art leaves the block as it was. MachineService dresses
+-- the buyer depot, whose block is already the model's size on map v2.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -11,20 +12,20 @@ local Houses = require(script.Parent:WaitForChild("Houses"))
 
 local WorldArtService = {}
 
--- The pellet buyer is the district's big landmark, much larger than the graybox block.
-local BUYER_SCALE = 2
 -- Village houses read as real buildings next to the machines at this size.
 local HOUSE_SCALE = 1.4
--- The graybox village overlapped Farm C, so it moves east: a row of houses at the back and a
--- school campus between them and the main road. Positions are ground centres.
-local VILLAGE_CENTER = Vector3.new(220, 0, -35)
+-- A row of houses at the back of the village and a school campus between them and the main road,
+-- as tools/GenerateGraybox.luau lays them out. Positions are ground centres.
+local VILLAGE_CENTER = Vector3.new(255, 0, -125)
 local VILLAGE_LAYOUT: { [string]: Vector3 } = {
-	House_1 = Vector3.new(185, 0, -63),
-	House_2 = Vector3.new(220, 0, -63),
-	House_3 = Vector3.new(255, 0, -63),
-	School = Vector3.new(220, 0, -12),
+	House_1 = Vector3.new(195, 0, -170),
+	House_2 = Vector3.new(255, 0, -170),
+	House_3 = Vector3.new(315, 0, -170),
+	School = Vector3.new(255, 0, -95),
 }
 local CAMPUS_SIZE = Vector3.new(80, 10, 44)
+-- One of each village house kind, in House_1, House_2, House_3 order.
+local VILLAGE_HOUSES = { Houses.StiltHouse, Houses.ConcreteHouse, Houses.Farmhouse }
 
 local function dress(model: Instance?, artName: string, scale: number?)
 	if model == nil or not model:IsA("Model") then
@@ -45,23 +46,6 @@ local function dress(model: Instance?, artName: string, scale: number?)
 	art:PivotTo(body.CFrame * CFrame.new(0, -body.Size.Y / 2, 0))
 	art.Parent = model
 	body.Transparency = 1
-end
-
--- Grows the buyer's collision block before MachineService places its IN port and status board.
--- The west wall stays put, so the loading dock and any belts to it keep lining up.
-function WorldArtService:EnlargeBuyer(world: Model)
-	local buyer = world:FindFirstChild("PelletBuyer")
-	local body = if buyer then buyer:FindFirstChild("Body") else nil
-	if body == nil or not body:IsA("BasePart") or body:GetAttribute("Enlarged") then
-		return
-	end
-	local oldSize = body.Size
-	local westX = body.Position.X - oldSize.X / 2
-	local groundY = body.Position.Y - oldSize.Y / 2
-	local newSize = oldSize * BUYER_SCALE
-	body.Size = newSize
-	body.CFrame = CFrame.new(westX + newSize.X / 2, groundY + newSize.Y / 2, body.Position.Z)
-	body:SetAttribute("Enlarged", true)
 end
 
 -- Moves and resizes the village's collision blocks before the landscape is planted, so trees and
@@ -101,8 +85,7 @@ end
 
 function WorldArtService:Initialize(world: Model)
 	local buyer = world:FindFirstChild("PelletBuyer")
-	dress(buyer, "BuyerDepot", BUYER_SCALE)
-	-- The buyer's live status board already names it, so the old graybox sign would overlap it.
+	-- The depot is a landmark that needs no sign.
 	local buyerSign = if buyer then buyer:FindFirstChild("MapLabel", true) else nil
 	if buyerSign and buyerSign:IsA("BillboardGui") then
 		buyerSign.Enabled = false
@@ -111,7 +94,23 @@ function WorldArtService:Initialize(world: Model)
 	if village then
 		for _, child in village:GetChildren() do
 			if string.sub(child.Name, 1, 6) == "House_" then
-				dress(child, "House", HOUSE_SCALE)
+				local body = child:FindFirstChild("Body")
+				local index = tonumber(string.sub(child.Name, 7)) or 1
+				local build = VILLAGE_HOUSES[(index - 1) % #VILLAGE_HOUSES + 1]
+				local house: Model? = nil
+				if body and body:IsA("BasePart") and child:FindFirstChild("Art") == nil then
+					local bottom = body.Position - Vector3.new(0, body.Size.Y / 2, 0)
+					-- Fronts face -Z; the road is to the south.
+					house =
+						build(CFrame.new(bottom) * CFrame.Angles(0, math.pi, 0), Random.new(index))
+				end
+				if house and body and body:IsA("BasePart") then
+					house.Name = "Art"
+					house.Parent = child
+					body.Transparency = 1
+				else
+					dress(child, "House", HOUSE_SCALE)
+				end
 			elseif child.Name == "School" then
 				local body = child:FindFirstChild("Body")
 				if

@@ -18,8 +18,9 @@ local FarmBoard = require(script.Parent:WaitForChild("FarmBoard"))
 
 local VillageService = {}
 
--- Where the cattle pen and request board stand: by the main road, west of the village path.
-local PEN_CENTER = Vector3.new(182, 0, 26)
+-- Where the cattle pen and request board stand: north of the main road between Farm B and the
+-- village, gate facing the road.
+local PEN_CENTER = Vector3.new(90, 0, -40)
 
 type Line = { speaker: string, text: string }
 

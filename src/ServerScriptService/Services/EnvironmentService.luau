@@ -3,7 +3,7 @@
 -- Turns the flat graybox district into a Thai rice-farming landscape at startup: terrain grass,
 -- green and flooded paddies beyond the district, a water canal, hazy mountains to the north, a
 -- dry pine hill, laterite tracks to every farm stop, scattered sugar palms and shade trees, and
--- warm late-afternoon light. Gameplay parts never move (except two graybox fixes noted below),
+-- warm late-afternoon light. Gameplay parts never move (except the graybox fix noted below),
 -- and nothing is placed on a field, road, plot, building, or track.
 
 local Lighting = game:GetService("Lighting")
@@ -19,17 +19,18 @@ local EnvironmentService = {}
 type Rect = { minX: number, maxX: number, minZ: number, maxZ: number }
 
 local SEED = 20261016
-local HALF_X = 640
-local HALF_Z = 560
-local DISTRICT: Rect = { minX = -264, maxX = 264, minZ = -212, maxZ = 212 }
-local CANAL: Rect = { minX = -HALF_X, maxX = HALF_X, minZ = -152, maxZ = -136 }
-local FOREST_EDGE_Z = -476
-local PINE_HILL: Rect = { minX = -620, maxX = -380, minZ = 320, maxZ = 540 }
+-- Map v2: the district (tools/GenerateGraybox.luau) is 780 x 630, the landscape around it larger.
+local HALF_X = 900
+local HALF_Z = 780
+local DISTRICT: Rect = { minX = -394, maxX = 394, minZ = -319, maxZ = 319 }
+local CANAL: Rect = { minX = -HALF_X, maxX = HALF_X, minZ = -268, maxZ = -252 }
+local FOREST_EDGE_Z = -680
+local PINE_HILL: Rect = { minX = -870, maxX = -530, minZ = 450, maxZ = 760 }
 local PADDY_X, PADDY_Z = 48, 36
--- Houses line the main road (graybox z 43 to 67) on both sides, so paddies stay out of that band.
-local HOUSE_BAND: Rect = { minX = -HALF_X, maxX = HALF_X, minZ = 10, maxZ = 100 }
+-- Houses line the main road (z -12 to 12) on both sides, so paddies stay out of that band.
+local HOUSE_BAND: Rect = { minX = -HALF_X, maxX = HALF_X, minZ = -57, maxZ = 57 }
 -- Small hamlets out in the countryside.
-local HAMLETS = { { 330, 400 }, { -210, 460 }, { -420, -420 }, { 360, -420 }, { 520, 180 } }
+local HAMLETS = { { 470, 560 }, { -300, 640 }, { -600, -560 }, { 500, -560 }, { 730, 250 } }
 local PATH_WIDTH = 12
 
 local terrain = Workspace.Terrain
@@ -190,7 +191,7 @@ end
 -- What each paddy was painted with, so scenery can skip water without raycasting terrain that
 -- was only just created this frame.
 local paddyMaterial: { [string]: Enum.Material } = {}
-local PINE_HILL_BALLS = { { -500, 420, 72 }, { -430, 488, 60 }, { -566, 356, 56 } }
+local PINE_HILL_BALLS = { { -700, 590, 90 }, { -600, 680, 76 }, { -790, 500, 70 } }
 
 local function paddyKey(x: number, z: number): string
 	return string.format("%d,%d", (x + HALF_X) // PADDY_X, (z + HALF_Z) // PADDY_Z)
@@ -234,12 +235,12 @@ end
 
 local function buildHills()
 	-- A broken ridge of mountains on the northern horizon.
-	for index = 1, 9 do
+	for index = 1, 12 do
 		local radius = rng:NextNumber(95, 150)
 		local center = Vector3.new(
 			-HALF_X + (index - 1) * 160 + rng:NextNumber(-40, 40),
 			-radius * 0.5,
-			rng:NextNumber(-700, -610)
+			rng:NextNumber(-940, -850)
 		)
 		terrain:FillBall(center, radius, Enum.Material.Grass)
 		terrain:FillBall(
@@ -249,23 +250,27 @@ local function buildHills()
 		)
 	end
 	-- Low wooded rises on the east and west edges close the view.
-	for index = 1, 6 do
+	for index = 1, 8 do
 		local side = if index % 2 == 0 then 1 else -1
 		local radius = rng:NextNumber(70, 105)
 		terrain:FillBall(
-			Vector3.new(side * rng:NextNumber(700, 760), -radius * 0.55, rng:NextNumber(-420, 420)),
+			Vector3.new(
+				side * rng:NextNumber(1000, 1080),
+				-radius * 0.55,
+				rng:NextNumber(-600, 600)
+			),
 			radius,
 			Enum.Material.Grass
 		)
 	end
 	-- Rolling hills on the southern horizon.
-	for index = 1, 7 do
+	for index = 1, 9 do
 		local radius = rng:NextNumber(80, 120)
 		terrain:FillBall(
 			Vector3.new(
 				-HALF_X + (index - 1) * 210 + rng:NextNumber(-40, 40),
 				-radius * 0.55,
-				rng:NextNumber(680, 760)
+				rng:NextNumber(940, 1050)
 			),
 			radius,
 			Enum.Material.Grass
@@ -319,12 +324,6 @@ local function tidyGraybox(world: Model)
 			road.Material = Enum.Material.Asphalt
 			road.Color = Color3.fromRGB(74, 73, 72)
 		end
-	end
-
-	-- The wind sign stood across the Farm C truck lane. Move it beside the lane instead.
-	local windSign = findPart(world, "WindSign")
-	if windSign then
-		windSign.Position = Vector3.new(100, windSign.Position.Y, windSign.Position.Z)
 	end
 end
 
@@ -397,7 +396,6 @@ end
 
 -- Keep-out areas ----------------------------------------------------------------------------------
 
-local BELT_CORRIDOR: Rect = { minX = 90, maxX = 160, minZ = 110, maxZ = 180 }
 local SKIP_BLOCKERS = { DistrictGround = true, Canal = true, ExposureZone = true }
 
 local function collectBlockers(world: Model, tracks: { Rect })
@@ -439,18 +437,18 @@ local function collectBlockers(world: Model, tracks: { Rect })
 			)
 		)
 	end
-	-- Belts may run from the factory plot out to the buyer's dock, so keep that gap clear.
-	table.insert(blockers, BELT_CORRIDOR)
 end
 
 local function paintUnderGameplay(world: Model, tracks: { Rect })
 	-- Bare earth under every gameplay part, so no grass pokes through floors and fields.
 	for _, child in world:GetChildren() do
 		if child.Name == "Village" then
-			local zone = child:FindFirstChild("ExposureZone")
-			local area = if zone then footprintOf(zone) else nil
-			if area then
-				recolor(area, Enum.Material.Sand)
+			-- Packed yards around the houses and the school; grass between them.
+			for _, building in child:GetChildren() do
+				local area = if SKIP_BLOCKERS[building.Name] then nil else footprintOf(building)
+				if area then
+					recolor(grow(area, 6), Enum.Material.Sand)
+				end
 			end
 		elseif not SKIP_BLOCKERS[child.Name] then
 			local area = footprintOf(child)
@@ -671,11 +669,11 @@ local function plantScenery()
 	local frangipani, bush, rock, stack = Flora.Frangipani, Flora.Bush, Flora.Rock, Flora.StrawStack
 
 	-- A field hut with palms and a big shade tree beside the start, like the first photo.
-	place(Flora.FieldHut, -228, 16)
-	place(palm, -244, 4)
-	place(palm, -238, 30)
-	place(rain, -250, 46)
-	place(stack, -214, 34)
+	place(Flora.FieldHut, -182, -32)
+	place(palm, -196, -40)
+	place(palm, -192, -22)
+	place(rain, -112, -36)
+	place(stack, -168, -22)
 
 	-- Tree lines along both canal banks.
 	for _, bankZ in { CANAL.minZ - 8, CANAL.maxZ + 6 } do
@@ -687,7 +685,7 @@ local function plantScenery()
 	end
 
 	-- Palms standing in twos and threes out on the paddy bunds.
-	for _ = 1, 55 do
+	for _ = 1, 80 do
 		local x, z = rng:NextNumber(-HALF_X, HALF_X), rng:NextNumber(FOREST_EDGE_Z, HALF_Z)
 		if not contains(grow(DISTRICT, 8), x, z) then
 			for _ = 1, rng:NextInteger(1, 4) do
@@ -695,13 +693,13 @@ local function plantScenery()
 			end
 		end
 	end
-	scatterOutside(260, { { rain, 3 }, { bush, 5 }, { frangipani, 1 }, { stack, 4 }, { rock, 1 } })
-	place(Flora.FieldHut, 330, -96)
-	place(Flora.FieldHut, -360, 150)
+	scatterOutside(380, { { rain, 3 }, { bush, 5 }, { frangipani, 1 }, { stack, 4 }, { rock, 1 } })
+	place(Flora.FieldHut, 470, -150)
+	place(Flora.FieldHut, -500, 210)
 	place(Flora.FieldHut, 120, 300)
 
 	-- Inside the district, between the farms, roads, factory, and village.
-	scatter(DISTRICT, 320, {
+	scatter(DISTRICT, 480, {
 		{ palm, 4 },
 		{ rain, 3 },
 		{ frangipani, 2 },
@@ -712,22 +710,22 @@ local function plantScenery()
 	-- Woodland at the foot of the northern mountains.
 	scatter(
 		rect(-HALF_X, HALF_X, -HALF_Z, FOREST_EDGE_Z),
-		260,
+		340,
 		{ { rain, 5 }, { palm, 2 }, { bush, 3 } }
 	)
 	-- Thick tree belts on the east and west edges.
 	scatter(
 		rect(-HALF_X, -HALF_X + 50, -HALF_Z, HALF_Z),
-		120,
+		160,
 		{ { rain, 4 }, { palm, 3 }, { bush, 2 } }
 	)
 	scatter(
 		rect(HALF_X - 50, HALF_X, -HALF_Z, HALF_Z),
-		120,
+		160,
 		{ { rain, 4 }, { palm, 3 }, { bush, 2 } }
 	)
 	-- Pines and boulders on the dry hill.
-	scatter(PINE_HILL, 90, { { pine, 6 }, { rock, 2 }, { bush, 1 } })
+	scatter(PINE_HILL, 120, { { pine, 6 }, { rock, 2 }, { bush, 1 } })
 end
 
 local function buildPowerLine(world: Model)

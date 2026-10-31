@@ -1,7 +1,8 @@
 --!strict
 
--- Low-poly scenery for the Thai rice-field landscape, built from plain parts in the same flat
--- style as the machines: sugar palms, rain trees, umbrella pines, frangipani, bushes, rocks,
+-- Scenery for the Thai rice-field landscape. Each builder uses a textured model from the flora
+-- pack (ReplicatedStorage.FieldArt, EV_<Asset>_<Variant>) when it was imported, and otherwise
+-- builds a low-poly version from plain parts in the same flat style as the machines: sugar palms, rain trees, umbrella pines, frangipani, bushes, rocks,
 -- straw stacks, a field hut, and power poles. Each builder takes the ground CFrame where the
 -- object stands and a Random, and returns an unparented Model. Nothing here is clickable or
 -- touchable, so scenery never gets in the way of build mode or prompts.
@@ -132,6 +133,11 @@ end
 -- Sugar palm (Borassus), the tall fan palm that stands alone on paddy bunds all over Thailand:
 -- a straight grey trunk, a skirt of dead fronds, and a round crown of stiff fan leaves.
 function Flora.SugarPalm(ground: CFrame, rng: Random): Model
+	local art =
+		FieldArt.Pick("SugarPalm", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		return art
+	end
 	local model = newModel("SugarPalm")
 	local height = rng:NextNumber(26, 40)
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
@@ -206,6 +212,10 @@ end
 
 -- A wide rain tree: a thick trunk that forks into heavy limbs under a broad, flat-topped dome.
 function Flora.RainTree(ground: CFrame, rng: Random): Model
+	local art = FieldArt.Pick("RainTree", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		return art
+	end
 	local model = newModel("RainTree")
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
 	local trunkHeight = rng:NextNumber(7, 11)
@@ -266,6 +276,11 @@ end
 -- Umbrella pine with a bare, slightly crooked trunk and flat cloud-like layers of needles, like
 -- the pines on Phu Kradueng.
 function Flora.UmbrellaPine(ground: CFrame, rng: Random): Model
+	local art =
+		FieldArt.Pick("UmbrellaPine", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		return art
+	end
 	local model = newModel("UmbrellaPine")
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
 	local height = rng:NextNumber(22, 34)
@@ -309,6 +324,11 @@ end
 
 -- Frangipani: a short, forked tree with leaf rosettes and white flowers at each tip.
 function Flora.Frangipani(ground: CFrame, rng: Random): Model
+	local art =
+		FieldArt.Pick("Frangipani", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		return art
+	end
 	local model = newModel("Frangipani")
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
 	local fork = base * lean(rng, 8) * CFrame.new(0, rng:NextNumber(4, 6), 0)
@@ -344,6 +364,10 @@ end
 
 -- A low shrub of overlapping leaf mounds.
 function Flora.Bush(ground: CFrame, rng: Random): Model
+	local art = FieldArt.Pick("Bush", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		return art
+	end
 	local model = newModel("Bush")
 	local green = leafColor(rng)
 	for _ = 1, rng:NextInteger(2, 4) do
@@ -360,6 +384,13 @@ function Flora.Bush(ground: CFrame, rng: Random): Model
 end
 
 function Flora.Rock(ground: CFrame, rng: Random, scale: number?): Model
+	local art = FieldArt.Pick("Rock", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		if scale and scale ~= 1 then
+			art:ScaleTo(scale)
+		end
+		return art
+	end
 	local model = newModel("Rock")
 	local factor = scale or 1
 	for index = 1, rng:NextInteger(1, 3) do
@@ -392,6 +423,11 @@ end
 
 -- A rounded stack of baled straw, the way farmers keep it beside the field.
 function Flora.StrawStack(ground: CFrame, rng: Random): Model
+	local art =
+		FieldArt.Pick("StrawStack", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		return art
+	end
 	local model = newModel("StrawStack")
 	local diameter = rng:NextNumber(7, 10)
 	local height = rng:NextNumber(4, 6)
@@ -419,6 +455,10 @@ end
 
 -- A small weathered field hut on short stilts with a rusty corrugated roof.
 function Flora.FieldHut(ground: CFrame, rng: Random): Model
+	local art = FieldArt.Pick("FieldHut", ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0), rng)
+	if art then
+		return art
+	end
 	local model = newModel("FieldHut")
 	local base = ground * CFrame.Angles(0, rng:NextNumber(0, TAU), 0)
 	local width, depth, floorY, wallHeight = 11, 8, 2, 6

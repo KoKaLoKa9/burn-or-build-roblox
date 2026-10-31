@@ -4,7 +4,12 @@
 -- a raised wooden stilt house, a single-storey concrete house with a porch, a two-storey
 -- shophouse, and a small farmhouse. Every builder picks its own wall and roof colours, so a row
 -- of houses never looks copied. Each takes the ground CFrame (front door facing -Z) and a Random,
--- and returns an unparented Model.
+-- and returns an unparented Model. When the houses pack was imported (ReplicatedStorage.FieldArt,
+-- EV_<House>_<Variant>), the textured model stands in for the part-built one.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local FieldArt = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FieldArt"))
 
 local Houses = {}
 
@@ -28,8 +33,42 @@ local GLASS = Color3.fromRGB(70, 92, 100)
 local TRIM = Color3.fromRGB(246, 244, 236)
 local CONCRETE = Color3.fromRGB(178, 174, 166)
 
+-- Plastic chairs, curtains, laundry and motorbikes on the textured houses.
+local FABRICS = {
+	Color3.fromRGB(216, 195, 154),
+	Color3.fromRGB(157, 184, 166),
+	Color3.fromRGB(196, 128, 94),
+	Color3.fromRGB(180, 192, 204),
+	Color3.fromRGB(226, 214, 162),
+	Color3.fromRGB(154, 90, 72),
+}
+
 local function pick<T>(list: { T }, rng: Random): T
 	return list[rng:NextInteger(1, #list)]
+end
+
+-- The textured houses leave their walls, roof and fabrics neutral (mesh groups named
+-- <Group>_Tint) for the game to colour, so a row of the same house still varies.
+local function tintArt(art: Model, rng: Random): Model
+	local colors: { [string]: Color3 } = {
+		Walls = pick(WALLS, rng),
+		Roof = pick(ROOFS, rng),
+	}
+	for _, descendant in art:GetDescendants() do
+		local group = if descendant:IsA("SurfaceAppearance") and descendant.Parent
+			then string.match(descendant.Parent.Name, "_(%a+)_Tint%d*$")
+			else nil
+		if group and descendant:IsA("SurfaceAppearance") then
+			local color: Color3? = colors[group]
+			if not color then
+				local fabric = pick(FABRICS, rng)
+				colors[group] = fabric
+				color = fabric
+			end
+			descendant.Color = color :: Color3
+		end
+	end
+	return art
 end
 
 local function part(
@@ -137,6 +176,10 @@ end
 -- A traditional Thai house raised on stilts, with a shaded space underneath, a wooden stair, and
 -- a steep gable roof. The living floor sits high to stay dry in the wet season.
 function Houses.StiltHouse(ground: CFrame, rng: Random): Model
+	local art = FieldArt.Pick("StiltHouse", ground, rng)
+	if art then
+		return tintArt(art, rng)
+	end
 	local model = newModel("StiltHouse")
 	local length, depth, raise, wallHeight = rng:NextNumber(20, 26), rng:NextNumber(15, 18), 6, 7
 	local wood = TEAK:Lerp(Color3.fromRGB(160, 120, 80), rng:NextNumber(0, 0.4))
@@ -207,6 +250,10 @@ end
 
 -- A single-storey concrete house painted in a pastel colour, with a tin roof and a shaded porch.
 function Houses.ConcreteHouse(ground: CFrame, rng: Random): Model
+	local art = FieldArt.Pick("ConcreteHouse", ground, rng)
+	if art then
+		return tintArt(art, rng)
+	end
 	local model = newModel("ConcreteHouse")
 	local length, depth, wallHeight = rng:NextNumber(18, 24), rng:NextNumber(13, 16), 8
 	local wall = pick(WALLS, rng)
@@ -270,6 +317,10 @@ end
 -- A two-storey shophouse: a shop front with a rolling shutter and awning below, living space
 -- with a balcony above, and a flat roof behind a parapet. They stand along the roads.
 function Houses.Shophouse(ground: CFrame, rng: Random): Model
+	local art = FieldArt.Pick("Shophouse", ground, rng)
+	if art then
+		return tintArt(art, rng)
+	end
 	local model = newModel("Shophouse")
 	local length, depth, storey = rng:NextNumber(14, 18), rng:NextNumber(14, 17), 7.5
 	local wall = pick(WALLS, rng)
@@ -339,6 +390,10 @@ end
 -- A small farmhouse: one room under a deep, low roof that shades a wide porch, with a water jar
 -- by the door.
 function Houses.Farmhouse(ground: CFrame, rng: Random): Model
+	local art = FieldArt.Pick("Farmhouse", ground, rng)
+	if art then
+		return tintArt(art, rng)
+	end
 	local model = newModel("Farmhouse")
 	local length, depth, wallHeight = rng:NextNumber(14, 18), rng:NextNumber(10, 12), 6.5
 	local wood = TEAK:Lerp(Color3.fromRGB(176, 150, 120), rng:NextNumber(0.2, 0.7))
@@ -393,10 +448,58 @@ function Houses.Farmhouse(ground: CFrame, rng: Random): Model
 	return model
 end
 
+-- Shown only on smog days (VillageService): the gate shut and a closure notice, across the gate
+-- on the campus's -Z side.
+local function addClosure(model: Model, ground: CFrame)
+	local gate = part(
+		model,
+		"ClosedGate",
+		Vector3.new(10.6, 3.6, 0.3),
+		ground * CFrame.new(0, 1.8, -21.7),
+		Color3.fromRGB(90, 96, 104),
+		Enum.Material.DiamondPlate,
+		false
+	)
+	gate.Transparency = 1
+	local sign = part(
+		model,
+		"ClosedSign",
+		Vector3.new(9, 3, 0.3),
+		ground * CFrame.new(0, 8.2, -22),
+		Color3.fromRGB(200, 52, 40),
+		nil,
+		false
+	)
+	sign.Transparency = 1
+	local surface = Instance.new("SurfaceGui")
+	surface.Name = "Notice"
+	surface.Face = Enum.NormalId.Front
+	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	surface.PixelsPerStud = 40
+	surface.Enabled = false
+	surface.Parent = sign
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.fromScale(1, 1)
+	text.BackgroundTransparency = 1
+	text.Text = "CLOSED\nSMOG DAY"
+	text.TextScaled = true
+	text.FontFace =
+		Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.ExtraBold)
+	text.TextColor3 = Color3.new(1, 1, 1)
+	text.Parent = surface
+end
+
 -- A rural Thai school campus (about 80 x 44 studs, gate on the -Z side): a two-storey classroom
 -- block with an open corridor, a single-storey block, an open-sided canteen, a flagpole with the
 -- Thai flag, a sports court, and a low fence with a gate and a sign.
-function Houses.SchoolCampus(ground: CFrame, _rng: Random): Model
+function Houses.SchoolCampus(ground: CFrame, rng: Random): Model
+	-- The textured school from the school pack is the same size with its gate on the same side.
+	local art = FieldArt.Pick("School", ground, rng)
+	if art then
+		art.Name = "SchoolCampus"
+		addClosure(art, ground)
+		return art
+	end
 	local model = newModel("SchoolCampus")
 	local cream = Color3.fromRGB(240, 224, 170)
 	local red = Color3.fromRGB(178, 62, 46)
@@ -606,43 +709,7 @@ function Houses.SchoolCampus(ground: CFrame, _rng: Random): Model
 		blue,
 		nil
 	)
-	-- Shown only on smog days (VillageService): the gate shut and a closure notice.
-	local gate = part(
-		model,
-		"ClosedGate",
-		Vector3.new(10.6, 3.6, 0.3),
-		ground * CFrame.new(0, 1.8, -21.7),
-		Color3.fromRGB(90, 96, 104),
-		Enum.Material.DiamondPlate,
-		false
-	)
-	gate.Transparency = 1
-	local sign = part(
-		model,
-		"ClosedSign",
-		Vector3.new(9, 3, 0.3),
-		ground * CFrame.new(0, 8.2, -22),
-		Color3.fromRGB(200, 52, 40),
-		nil,
-		false
-	)
-	sign.Transparency = 1
-	local surface = Instance.new("SurfaceGui")
-	surface.Name = "Notice"
-	surface.Face = Enum.NormalId.Front
-	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	surface.PixelsPerStud = 40
-	surface.Enabled = false
-	surface.Parent = sign
-	local text = Instance.new("TextLabel")
-	text.Size = UDim2.fromScale(1, 1)
-	text.BackgroundTransparency = 1
-	text.Text = "CLOSED\nSMOG DAY"
-	text.TextScaled = true
-	text.FontFace =
-		Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.ExtraBold)
-	text.TextColor3 = Color3.new(1, 1, 1)
-	text.Parent = surface
+	addClosure(model, ground)
 	return model
 end
 

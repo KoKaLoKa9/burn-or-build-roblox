@@ -16,6 +16,26 @@ FieldArt.SegmentLength = 8
 local templates: { [string]: Model } = {}
 -- Asset names already looked for and not found.
 local missing: { [string]: boolean } = {}
+-- Mesh groups of the flora, house and school packs drawn as alpha cut-out cards.
+local CUTOUT_GROUPS: { [string]: boolean } = {
+	Blades = true,
+	Branches = true,
+	Bunch = true,
+	Canopy = true,
+	Cards = true,
+	Culms = true,
+	DeadFronds = true,
+	DeadLeaves = true,
+	Epiphytes = true,
+	Flowers = true,
+	Fringe = true,
+	LeafBases = true,
+	Leaves = true,
+	Needles = true,
+	RoofFringe = true,
+	Stems = true,
+	Trees = true,
+}
 
 local function template(name: string): Model?
 	if templates[name] or missing[name] then
@@ -33,6 +53,14 @@ local function template(name: string): Model?
 	local minimum = Vector3.new(math.huge, math.huge, math.huge)
 	local maximum = -minimum
 	for _, descendant in art:GetDescendants() do
+		if descendant:IsA("SurfaceAppearance") and descendant.Parent then
+			-- Leaf and frond cards are cut out by their texture's alpha. Overlay (the import's
+			-- default) would paint the cut-away parts in the part's white.
+			local group = string.match(descendant.Parent.Name, "_(%a+)%d*$")
+			if group and CUTOUT_GROUPS[group] then
+				descendant.AlphaMode = Enum.AlphaMode.Transparency
+			end
+		end
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
 			descendant.CanCollide = false
@@ -80,6 +108,16 @@ function FieldArt.Variants(asset: string): { string }
 		end
 	end
 	return found
+end
+
+-- A copy of one of the asset's variants, chosen by `rng`, standing at `ground`, or nil without the
+-- pack. The scenery and house builders use it before falling back to their part-built look.
+function FieldArt.Pick(asset: string, ground: CFrame, rng: Random): Model?
+	local variants = FieldArt.Variants(asset)
+	if #variants == 0 then
+		return nil
+	end
+	return FieldArt.Place(variants[rng:NextInteger(1, #variants)], ground)
 end
 
 -- Fills `length` studs along the local Z axis of `centre` with copies of the asset's segments,

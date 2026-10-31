@@ -43,11 +43,9 @@ end
 world:SetAttribute("ProjectMilestone", "Week4SeasonLoop")
 world:SetAttribute("WindDirection", GameConfig.Wind.Label)
 -- MachineService creates the shared remotes, so it starts before the services that notify.
--- Before MachineService, which places the buyer's IN port from its collision block.
-WorldArtService:EnlargeBuyer(world)
 WorldArtService:PrepareVillage(world)
 VillageService:Prepare(world)
--- After the buyer grows and before MachineService reads the road sizes for placement rules.
+-- Before MachineService reads the road sizes for placement rules.
 EnvironmentService:Initialize(world)
 MachineService:Initialize(world, PlayerStateService)
 PowerService:Initialize(world, MachineService)
