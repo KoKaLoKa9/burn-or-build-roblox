@@ -3,7 +3,10 @@
 -- Builds one 4 stud conveyor tile in the factory style: steel legs, a teal frame, a dark belt,
 -- side walls on every closed side, and a yellow chevron showing which way the belt runs.
 -- Used by the server for placed tiles and by the client for the placement ghost and hotbar icon.
+-- Uses the textured conveyor kit when it is imported (ConveyorKit).
 -- The model's pivot is the cell centre on the floor, and +X is the belt direction before turning.
+
+local ConveyorKit = require(script.Parent:WaitForChild("ConveyorKit"))
 
 local ConveyorTile = {}
 
@@ -39,8 +42,38 @@ local function part(
 	return item
 end
 
+-- With the textured kit: the piece that fits the open sides, over an invisible frame to click.
+local function buildFromKit(dir: number, openSides: { [number]: boolean }): Model?
+	local name, turn = ConveyorKit.BeltPiece(dir, openSides)
+	local art = ConveyorKit.Place(name, CFrame.Angles(0, turn * math.pi / 2, 0))
+	if art == nil then
+		return nil
+	end
+	local model = Instance.new("Model")
+	model.Name = "ConveyorTile"
+	art.Name = "Art"
+	art.Parent = model
+	local frame = part(
+		model,
+		"Frame",
+		Vector3.new(3.8, 1.2, 3.8),
+		CFrame.new(0, 0.7, 0),
+		TEAL_DARK,
+		Enum.Material.SmoothPlastic
+	)
+	frame.Transparency = 1
+	frame.CanQuery = true
+	model.PrimaryPart = frame
+	frame.PivotOffset = frame.CFrame:Inverse()
+	return model
+end
+
 -- `openSides` uses world sides (0 east, 1 north, 2 west, 3 south); walls go on the others.
 function ConveyorTile.Build(dir: number, openSides: { [number]: boolean }): Model
+	local textured = buildFromKit(dir, openSides)
+	if textured then
+		return textured
+	end
 	local model = Instance.new("Model")
 	model.Name = "ConveyorTile"
 

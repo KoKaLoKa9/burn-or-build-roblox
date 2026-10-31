@@ -15,6 +15,7 @@ local FieldArt = require(Shared:WaitForChild("FieldArt"))
 local PipeDefinitions = require(Shared:WaitForChild("PipeDefinitions"))
 local PipeRoute = require(Shared:WaitForChild("PipeRoute"))
 local ConveyorGrid = require(Shared:WaitForChild("ConveyorGrid"))
+local ConveyorKit = require(Shared:WaitForChild("ConveyorKit"))
 local ConveyorTile = require(Shared:WaitForChild("ConveyorTile"))
 local PipeTile = require(Shared:WaitForChild("PipeTile"))
 local MachineDefinitions = require(Shared:WaitForChild("MachineDefinitions"))
@@ -901,6 +902,80 @@ local function signatureOf(cells: { string }): string
 	return table.concat(cells, ";")
 end
 
+-- Joins between belt or pipe ends and machine walls (the textured kit only). The last tile of a
+-- line stops at its cell edge, 0 to 4 studs short of the wall; a port piece flush on the wall and a
+-- bridge stretched to the rest close the gap, and the neon port plate hides behind them.
+local portJoins: Folder? = nil
+
+local function placeJoin(name: string, at: Vector3, along: Vector3, stretch: number, medium: string)
+	local art =
+		ConveyorKit.Place(name, CFrame.new(at) * CFrame.Angles(0, math.atan2(-along.Z, along.X), 0))
+	if art == nil then
+		return false
+	end
+	if math.abs(stretch - 1) > 1e-3 then
+		ConveyorKit.StretchX(art, stretch)
+	end
+	local pipe = PipeDefinitions.Types[medium]
+	if medium ~= "Item" and pipe then
+		ConveyorKit.Tint(art, Color3.fromRGB(table.unpack(pipe.Color)))
+	end
+	art.Parent = portJoins
+	return true
+end
+
+local function dressPorts()
+	if portJoins == nil then
+		local folder = Instance.new("Folder")
+		folder.Name = "PortJoins"
+		folder.Parent = conveyorFolder.Parent
+		portJoins = folder
+	end
+	(portJoins :: Folder):ClearAllChildren()
+	for _, record in records do
+		for _, port in portParts(record) do
+			local medium = tostring(port:GetAttribute("PortMedium"))
+			local key = accessCell(record, port)
+			local tile = tiles[key]
+			local joined = false
+			if tile and tile.medium == medium then
+				-- Square the facing to the grid, so north and south ports join straight.
+				local rough = portDirection(record, port)
+				local facing = if math.abs(rough.X) >= math.abs(rough.Z)
+					then Vector3.new(math.sign(rough.X), 0, 0)
+					else Vector3.new(0, 0, math.sign(rough.Z))
+				local x, z = ConveyorGrid.Center(tile.ix, tile.iz)
+				local centre = Vector3.new(x, floorTopY, z)
+				-- The port plate stands 1 stud out from the wall; the line runs on the cell's axis.
+				local wall = port.Position - facing
+				local edge = centre - facing * 2
+				local gap = (edge - wall):Dot(facing)
+				local across = centre - facing * centre:Dot(facing)
+				local function onLine(distance: number): Vector3
+					return across + facing * (wall:Dot(facing) + distance)
+				end
+				local out = port:GetAttribute("PortDirection") == "Out"
+				local portLength = math.clamp(gap, 0.2, 1)
+				local portName = if medium == "Item"
+					then (if out then "CV_PortOut" else "CV_PortIn")
+					else "PP_Port"
+				-- Port pieces have their origin on the line end; CV_PortOut flows away from the wall,
+				-- the others into it.
+				local along = if out and medium == "Item" then facing else -facing
+				joined = placeJoin(portName, onLine(portLength), along, portLength, medium)
+				local bridgeLength = gap - portLength
+				if joined and bridgeLength > 0.05 then
+					local prefix = if medium == "Item" then "CV" else "PP"
+					local bridge, stretch = ConveyorKit.BridgeFor(prefix, bridgeLength)
+					local flow = if out then facing else -facing
+					placeJoin(bridge, onLine(portLength + bridgeLength / 2), flow, stretch, medium)
+				end
+			end
+			port.Transparency = if joined then 1 else 0
+		end
+	end
+end
+
 -- Re-traces every belt and keeps simulation links in step. Returns messages worth telling the
 -- player, such as a belt that reached a machine that cannot take that material.
 local function recomputeBelts(): { string }
@@ -1011,6 +1086,7 @@ local function recomputeBelts(): { string }
 			end
 		end
 	end
+	dressPorts()
 	return messages
 end
 
@@ -1325,8 +1401,8 @@ end
 local function refreshVisuals()
 	for _, record in records do
 		record.statusLabel.Text = describe(record)
-		-- Clients turn moving parts (the dryer drum) only while the machine works.
-		local working = record.node.state == "Processing"
+		-- Clients turn moving parts (the dryer drum, a crank's wheel) only while the machine works.
+		local working = record.node.state == "Processing" or record.node.state == "Generating"
 		if record.model:GetAttribute("Working") ~= working then
 			record.model:SetAttribute("Working", working)
 		end

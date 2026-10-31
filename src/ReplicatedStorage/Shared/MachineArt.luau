@@ -70,13 +70,49 @@ function MachineArt.Build(definitionId: string): Model?
 	-- Textured (v2) models: lamps, screens and the fire window glow, gauge glass shows through.
 	-- Studio's glTF import names the parts DY_Emissive, DY_Emissive2, ... inside DY_Emissive_Node,
 	-- and every v2 machine uses its own two-letter prefix (DY_, SH_, ...).
+	-- The power machines also glow their fire and charge lamps, and hide their wire markers.
 	for _, descendant in art:GetDescendants() do
 		if descendant:IsA("BasePart") then
-			if string.match(descendant.Name, "^%u%u_Emissive") then
+			local name = descendant.Name
+			if
+				string.match(name, "^%u%u_Emissive")
+				or string.match(name, "^%u%u_Fire")
+				or string.match(name, "^BB_Level")
+			then
 				descendant.Material = Enum.Material.Neon
-			elseif string.match(descendant.Name, "^%u%u_Glass") then
+			elseif string.match(name, "^%u%u_Glass") then
 				descendant.Transparency = 0.45
+			elseif string.match(name, "^%u%u_WireTop") then
+				-- PowerService and the wrench find the wire point by this name.
+				descendant.Name = "WireTop"
+				descendant.Transparency = 1
 			end
+		end
+	end
+	-- Pole coils: the wrench clicks a part named CoilN carrying the Coil attribute, so each coil
+	-- group gets an invisible ball over it.
+	for coil = 1, 2 do
+		local group = art:FindFirstChild("PO_Coil" .. coil, true)
+		local cframe: CFrame?, size: Vector3? = nil, nil
+		if group and group:IsA("Model") then
+			cframe, size = group:GetBoundingBox()
+		elseif group and group:IsA("BasePart") then
+			cframe, size = group.CFrame, group.Size
+		end
+		if cframe and size then
+			local ball = Instance.new("Part")
+			ball.Name = "Coil" .. coil
+			ball.Shape = Enum.PartType.Ball
+			local diameter = math.max(size.X, size.Y, size.Z) + 0.2
+			ball.Size = Vector3.new(diameter, diameter, diameter)
+			ball.CFrame = CFrame.new(cframe.Position)
+			ball.Transparency = 1
+			ball.Anchored = true
+			ball.CanCollide = false
+			ball.CanTouch = false
+			ball.CanQuery = true
+			ball:SetAttribute("Coil", coil)
+			ball.Parent = art
 		end
 	end
 

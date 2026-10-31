@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conveyor + Pipe Kit v2</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#d6d7d4;color:#1c1d1b;font-family:"IBM Plex Mono",ui-monospace,monospace}
+  a{color:#1f6f6c}a:hover{color:#0f4846}
+  three-d-stage:not(:defined){visibility:hidden}
+  three-d-stage{height:100vh}
+  #panel{position:fixed;top:12px;left:12px;width:320px;max-width:calc(100vw - 24px);max-height:calc(100vh - 80px);overflow:auto;background:rgba(250,250,247,.94);border:1px solid rgba(0,0,0,.12);border-radius:6px;font-size:11px;line-height:1.45;box-sizing:border-box}
+  #panel header{padding:10px 12px 8px;border-bottom:1px solid rgba(0,0,0,.1);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  #panel h1{margin:0;font:700 15px/1.1 "IBM Plex Sans Condensed",sans-serif;letter-spacing:.02em}
+  #panel .sec{padding:8px 12px;border-bottom:1px solid rgba(0,0,0,.08)}
+  #panel .lab{font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:10px;color:#5a5c58;margin-bottom:4px}
+  #panel table{width:100%;border-collapse:collapse}
+  #panel td{padding:1px 0;vertical-align:top}#panel td.r{text-align:right;white-space:nowrap;padding-left:6px}
+  #panel tr.pc{cursor:pointer}#panel tr.pc:hover td{color:#1f6f6c}
+  #panel .bad{color:#b3261e;font-weight:600}#panel .ok{color:#1f6f6c;font-weight:600}
+  #panel .row{display:flex;flex-wrap:wrap;gap:4px}
+  #panel button{font:500 11px "IBM Plex Mono",monospace;padding:5px 7px;border:1px solid rgba(0,0,0,.18);background:#fff;border-radius:4px;cursor:pointer;color:#1c1d1b}
+  #panel button:hover{background:#eef3f2}
+  #panel button[aria-pressed="true"],#panel button.primary{background:#1f6f6c;color:#fff;border-color:#1f6f6c}
+  #panel .tog{background:none;border:none;padding:0;font-size:11px;color:#5a5c58}
+  #panel.min .body{display:none}
+  #busy{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:600 13px "IBM Plex Mono",monospace;color:#3b3d3a;pointer-events:none}
+</style>
+</head>
+<body>
+<three-d-stage name="Conveyor_v2" background="#d6d7d4"></three-d-stage>
+<div id="busy">Building the conveyor + pipe kit…</div>
+<aside id="panel">
+  <header><h1>CONVEYOR + PIPE KIT · v2</h1><button class="tog" id="minBtn">hide</button></header>
+  <div class="body">
+    <div class="sec"><div class="lab">Views</div><div class="row" id="views"></div></div>
+    <div class="sec"><div class="lab">Show</div><div class="row">
+      <button id="layBtn" aria-pressed="true">Test layout</button>
+      <button id="gridBtn" aria-pressed="true">4×4 grid</button>
+      <button id="itemBtn" aria-pressed="true">Cargo</button>
+    </div></div>
+    <div class="sec"><div class="row"><button id="glbBtn" class="primary">Export GLB</button><span id="glbMsg" style="align-self:center;color:#5a5c58"></span></div></div>
+    <div class="sec"><div class="lab">Frame (1 unit = 1 stud)</div>Cell 4 × 4, origin at cell centre on floor. Flow → +X. −Z left, +Z right.<br>Belt top y 1.32 · belt 3.0 · frame 3.9 · guards ≤ 1.9<br>Pipe axis y 1.5 · OD 1.2 · flange OD 1.64</div>
+    <div class="sec"><div class="lab">Checks</div><table id="checks"></table></div>
+    <div class="sec"><div class="lab">Pieces · size W×H×D · triangles</div><table id="tris"></table></div>
+  </div>
+</aside>
+<script src="three-d-stage.js"></script>
+<script type="module">
+const stage = document.querySelector('three-d-stage');
+const { THREE } = await stage.ready;
+const renderer = stage._renderer, scene = stage._scene;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .82;
+try { await Promise.all([document.fonts.load('700 40px "IBM Plex Sans Condensed"'), document.fonts.load('600 40px "IBM Plex Mono"')]); } catch (e) {}
+
+const V3 = THREE.Vector3, TAU = Math.PI * 2, DEG = Math.PI / 180, YUP = new V3(0, 1, 0), DS = THREE.DoubleSide;
+let seed = 20261103;
+const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const rr = (a, b) => a + (b - a) * rnd();
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+/* ================= textures (same procedural kit as DY / SH) ================= */
+const cv = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+function texFrom(c, srgb = true, rep = true) { const t = new THREE.CanvasTexture(c); if (srgb) t.colorSpace = THREE.SRGBColorSpace; if (rep) t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; }
+function normalFrom(hc, k = 2) {
+  const w = hc.width, h = hc.height, s = hc.getContext('2d').getImageData(0, 0, w, h).data, o = cv(w, h), ctx = o.getContext('2d'), img = ctx.createImageData(w, h), d = img.data;
+  for (let y = 0; y < h; y++) { const yu = ((y - 1 + h) % h) * w, yd = ((y + 1) % h) * w, yr = y * w;
+    for (let x = 0; x < w; x++) { const xl = (x - 1 + w) % w, xr = (x + 1) % w, dx = (s[(yr + xr) * 4] - s[(yr + xl) * 4]) / 255 * k, dy = (s[(yd + x) * 4] - s[(yu + x) * 4]) / 255 * k, l = Math.hypot(dx, dy, 1), i = (yr + x) * 4;
+      d[i] = (-dx / l * .5 + .5) * 255; d[i + 1] = (dy / l * .5 + .5) * 255; d[i + 2] = (1 / l * .5 + .5) * 255; d[i + 3] = 255; } }
+  ctx.putImageData(img, 0, 0); return texFrom(o, false);
+}
+function blotch(x, W, H, n, col, r0, r1, a) { for (let i = 0; i < n; i++) { const px = rnd() * W, py = rnd() * H, r = rr(r0, r1), al = a * rr(.5, 1);
+  for (const ox of [-W, 0, W]) for (const oy of [-H, 0, H]) { const X = px + ox, Y = py + oy; if (X + r < 0 || X - r > W || Y + r < 0 || Y - r > H) continue;
+    const g = x.createRadialGradient(X, Y, 0, X, Y, r); g.addColorStop(0, rgba(col, al)); g.addColorStop(1, rgba(col, 0)); x.fillStyle = g; x.fillRect(X - r, Y - r, 2 * r, 2 * r); } } }
+function specks(x, W, H, n, cols, r0, r1, a0, a1) { for (let i = 0; i < n; i++) { x.globalAlpha = rr(a0, a1); x.fillStyle = cols[(rnd() * cols.length) | 0]; x.beginPath(); x.arc(rnd() * W, rnd() * H, rr(r0, r1), 0, TAU); x.fill(); } x.globalAlpha = 1; }
+function chipPath(x, cx, cy, s) { x.beginPath(); const n = 7; for (let i = 0; i < n; i++) { const a = i / n * TAU, r = s * rr(.45, 1.1); i ? x.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r * rr(.6, 1)) : x.moveTo(cx + r, cy); } x.closePath(); }
+function chips(c, h, W, H, n, smin, smax, cols = ['#6e4a2e', '#666a68']) { for (let i = 0; i < n; i++) { const px = rnd() * W, py = rnd() * H, s = rr(smin, smax);
+  chipPath(c, px, py, s * 1.25); c.fillStyle = 'rgba(40,44,43,.45)'; c.fill(); chipPath(c, px, py, s); c.fillStyle = rnd() < .3 ? cols[0] : cols[1]; c.fill(); chipPath(h, px, py, s); h.fillStyle = '#5a5a5a'; h.fill(); } }
+function strawDust(x, S, n) { for (let i = 0; i < n; i++) { x.globalAlpha = rr(.2, .55); x.fillStyle = rnd() < .5 ? '#cdb27a' : '#d8cfb4'; x.save(); x.translate(rnd() * S, rnd() * S); x.rotate(rnd() * TAU); x.fillRect(0, 0, rr(4, 16), 1.5); x.restore(); } x.globalAlpha = 1; }
+const plate = (W, H, draw) => { const c = cv(W, H), x = c.getContext('2d'); draw(x, W, H); return texFrom(c, true, false); };
+const TX = {};
+{ // teal enamel (shared with the machines): chips, straw dust, grime
+  const S = 1024, c = cv(S, S), x = c.getContext('2d'), hc = cv(S, S), h = hc.getContext('2d');
+  x.fillStyle = '#226f6b'; x.fillRect(0, 0, S, S); blotch(x, S, S, 40, [44, 132, 126], S * .03, S * .12, .35); blotch(x, S, S, 40, [18, 76, 74], S * .03, S * .12, .3);
+  specks(x, S, S, S * 3, ['#c8bc98', '#a89a74'], .5, 1.6, .08, .3);
+  h.fillStyle = '#b0b0b0'; h.fillRect(0, 0, S, S); specks(h, S, S, S * 2, ['#a4a4a4', '#bcbcbc'], 1, 3, .4, .8);
+  chips(x, h, S, S, 260, S * .0015, S * .005); blotch(x, S, S, 22, [190, 172, 128], 40, 160, .28); strawDust(x, S, 1800);
+  TX.teal = texFrom(c); TX.tealN = normalFrom(hc, 2);
+}
+{ // hot-dip galvanised: spangle crystals, zinc bloom, grime
+  const S = 512, c = cv(S, S), x = c.getContext('2d'), hc = cv(S, S), h = hc.getContext('2d');
+  x.fillStyle = '#a9adac'; x.fillRect(0, 0, S, S); h.fillStyle = '#808080'; h.fillRect(0, 0, S, S);
+  for (let i = 0; i < 380; i++) { const px = rnd() * S, py = rnd() * S, r = rr(10, 34), t = (rr(-24, 24)) | 0, k = 5 + ((rnd() * 4) | 0), pts = [];
+    for (let j = 0; j < k; j++) { const a = j / k * TAU + rr(-.3, .3), q = r * rr(.6, 1.1); pts.push([Math.cos(a) * q, Math.sin(a) * q]); }
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) { const X = px + ox, Y = py + oy; if (X + r < 0 || X - r > S || Y + r < 0 || Y - r > S) continue;
+      for (const [ctx, col] of [[x, `rgba(${170 + t},${174 + t},${173 + t},.55)`], [h, `rgba(${128 + t * 2},${128 + t * 2},${128 + t * 2},.5)`]]) { ctx.fillStyle = col; ctx.beginPath(); pts.forEach(([a, b], j) => j ? ctx.lineTo(X + a, Y + b) : ctx.moveTo(X + a, Y + b)); ctx.closePath(); ctx.fill(); } } }
+  blotch(x, S, S, 22, [118, 110, 94], 20, 90, .22); blotch(x, S, S, 14, [222, 226, 224], 20, 70, .2);
+  specks(x, S, S, 2600, ['#8d918f', '#c9cccb', '#9a8a6a'], .5, 1.6, .2, .6); strawDust(x, S, 260);
+  TX.galv = texFrom(c); TX.galvN = normalFrom(hc, .8);
+}
+{ // rubber belt cover, wear lines along travel (u)
+  const S = 512, c = cv(S, S), x = c.getContext('2d'), hc = cv(S, S), h = hc.getContext('2d'); x.fillStyle = '#262624'; x.fillRect(0, 0, S, S); h.fillStyle = '#808080'; h.fillRect(0, 0, S, S);
+  for (let i = 0; i < 140; i++) { const y = rnd() * S; x.fillStyle = `rgba(90,88,80,${rr(.05, .18)})`; x.fillRect(0, y, S, rr(1, 4)); h.fillStyle = 'rgba(60,60,60,.5)'; h.fillRect(0, y, S, 1); }
+  blotch(x, S, S, 30, [150, 128, 80], 20, 80, .22); specks(x, S, S, 1600, ['#b89a58', '#5a5852'], .6, 1.8, .2, .6); strawDust(x, S, 220);
+  TX.belt = texFrom(c); TX.beltN = normalFrom(hc, 1.2);
+}
+{ // pipe body: light grey base for tinting; weld seams, paint wear, stains carry the detail
+  const S = 512, c = cv(S, S), x = c.getContext('2d'), hc = cv(S, S), h = hc.getContext('2d');
+  x.fillStyle = 'rgb(200,200,200)'; x.fillRect(0, 0, S, S); h.fillStyle = '#909090'; h.fillRect(0, 0, S, S);
+  blotch(x, S, S, 36, [214, 214, 214], 30, 110, .3); blotch(x, S, S, 30, [178, 176, 172], 30, 110, .25);
+  for (const px of [S * .25, S * .75]) { x.fillStyle = 'rgba(150,150,148,.9)'; x.fillRect(px - 3, 0, 6, S); x.fillStyle = 'rgba(226,226,224,.8)'; x.fillRect(px - 1, 0, 2, S);
+    for (let y = 0; y < S; y += 6) { h.fillStyle = '#e8e8e8'; h.beginPath(); h.ellipse(px, y, 4, 3.2, 0, 0, TAU); h.fill(); } }
+  chips(x, h, S, S, 70, 1.4, 5, ['#7a6a58', '#8c8e8d']);
+  blotch(x, S, S, 10, [140, 126, 104], 20, 70, .28); specks(x, S, S, 1400, ['#a8a8a6', '#d8d8d6', '#8a8070'], .5, 1.5, .15, .5);
+  TX.pipe = texFrom(c); TX.pipeN = normalFrom(hc, 1.4);
+}
+TX.chev = plate(256, 256, (x, W) => { x.fillStyle = '#e2ae14'; x.beginPath(); [[58, 34], [150, 128], [58, 222], [108, 222], [200, 128], [108, 34]].forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b)); x.closePath(); x.fill();
+  x.globalCompositeOperation = 'destination-out'; specks(x, W, W, 420, ['#000'], .6, 2.6, .3, .9); for (let i = 0; i < 30; i++) { x.globalAlpha = rr(.2, .6); x.fillRect(0, rnd() * W, W, rr(1, 3)); } x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+  x.globalCompositeOperation = 'source-atop'; specks(x, W, W, 300, ['#8a7a4a', '#5a5040'], .6, 2.2, .2, .5); x.globalCompositeOperation = 'source-over'; });
+TX.arrow = plate(256, 512, (x, W, H) => { x.fillStyle = '#f2f2ee'; x.fillRect(0, 0, W, H); x.strokeStyle = '#222'; x.lineWidth = 8; x.strokeRect(10, 10, W - 20, H - 20);
+  x.fillStyle = '#1d1d1b'; x.beginPath(); [[W / 2, 48], [W - 40, 200], [W / 2 + 34, 200], [W / 2 + 34, H - 50], [W / 2 - 34, H - 50], [W / 2 - 34, 200], [40, 200]].forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b)); x.closePath(); x.fill();
+  specks(x, W, H, 260, ['#bdbdb6', '#8a8a84'], .6, 2.2, .2, .5); });
+TX.mesh = plate(256, 256, (x, W) => { x.fillStyle = '#dca814'; for (let i = 0; i < 8; i++) { x.save(); x.translate(i * 32, 0); x.fillRect(0, 0, 5, W); x.restore(); x.fillRect(0, i * 32, W, 5); } });
+TX.mesh.wrapS = TX.mesh.wrapT = THREE.RepeatWrapping;
+
+/* ================= materials (one texture set each, shared by every piece) ================= */
+function mat(name, o, uvs = 1) { const m = new THREE.MeshStandardMaterial(o); m.name = name; m.userData.uvScale = uvs; return m; }
+const M = {
+  teal: mat('TealEnamel', { map: TX.teal, normalMap: TX.tealN, roughness: .52, metalness: .2 }, .5),
+  galv: mat('GalvanisedSteel', { map: TX.galv, normalMap: TX.galvN, roughness: .42, metalness: .72 }, .6),
+  belt: mat('BeltRubber', { map: TX.belt, normalMap: TX.beltN, roughness: .85, metalness: 0 }, .5),
+  pipe: mat('PipeTintBase', { map: TX.pipe, normalMap: TX.pipeN, roughness: .45, metalness: .2, color: 0xffffff }, .5),
+  yellow: mat('SafetyYellow', { color: 0xdca814, roughness: .5, metalness: .1 }),
+  guardMesh: mat('WireMeshGuardYellow', { map: TX.mesh, roughness: .5, metalness: .15, alphaTest: .5, side: DS }, 3),
+  chev: mat('BeltChevronPrint', { map: TX.chev, alphaTest: .45, roughness: .8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+  arrow: mat('FlowArrowPlateWhite', { map: TX.arrow, roughness: .45, metalness: .05, side: DS }),
+  steel: mat('BrightSteelRoller', { color: 0xb9bcbd, roughness: .32, metalness: .9 }),
+  bolt: mat('ZincBolt', { color: 0x8f918d, roughness: .45, metalness: .8 }),
+  iron: mat('CastIron', { color: 0x3a3937, roughness: .66, metalness: .55 }),
+  rubber: mat('Rubber', { color: 0x1c1c1c, roughness: .88, metalness: 0 }),
+  red: mat('ValveWheelRed', { color: 0xb8281c, roughness: .4, metalness: .1 }),
+  brass: mat('Brass', { color: 0xb38c3c, roughness: .35, metalness: .9 }),
+  dark: mat('BoreShadow', { color: 0x121212, roughness: 1, metalness: 0 }),
+};
+
+/* ================= geometry helpers ================= */
+const v3 = a => a.isVector3 ? a.clone() : new V3(a[0], a[1], a[2]);
+function boxG(w, h, d) { const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv, dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]]; for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) { const i = f * 4 + k; uv.setXY(i, uv.getX(i) * dims[f][0], uv.getY(i) * dims[f][1]); } return g; }
+function cylG(rt, rb, h, seg = 16, open = false, ts = 0, tl = TAU) { const g = new THREE.CylinderGeometry(rt, rb, h, seg, 1, open, ts, tl), uv = g.attributes.uv, su = (rt + rb) / 2 * tl; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * h); return g; }
+class GB { constructor() { this.p = []; this.n = []; this.u = []; }
+  tri(a, b, c, na, nb, nc, ua = [0, 0], ub = [0, 0], uc = [0, 0]) { const f = new V3().subVectors(b, a).cross(new V3().subVectors(c, a)), ref = na.clone().add(nb).add(nc); if (f.dot(ref) < 0) { [b, c] = [c, b]; [nb, nc] = [nc, nb]; [ub, uc] = [uc, ub]; }
+    for (const [p, n, u] of [[a, na, ua], [b, nb, ub], [c, nc, uc]]) { this.p.push(p.x, p.y, p.z); this.n.push(n.x, n.y, n.z); this.u.push(u[0], u[1]); } }
+  quad(a, b, c, d, na, nb, nc, nd, ua, ub, uc, ud) { this.tri(a, b, c, na, nb, nc, ua, ub, uc); this.tri(a, c, d, na, nc, nd, ua, uc, ud); }
+  geo() { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2)); return g; } }
+function nutG(r = .04, h = .035) { const b = new GB(), P = (a, y) => new V3(r * Math.cos(a), y, r * Math.sin(a)), up = new V3(0, 1, 0);
+  for (let i = 0; i < 6; i++) { const a0 = i / 6 * TAU + Math.PI / 6, a1 = (i + 1) / 6 * TAU + Math.PI / 6, am = (a0 + a1) / 2, n = new V3(Math.cos(am), 0, Math.sin(am));
+    b.quad(P(a0, 0), P(a1, 0), P(a1, h), P(a0, h), n, n, n, n); b.tri(new V3(0, h, 0), P(a0, h), P(a1, h), up, up, up); }
+  return b.geo(); }
+function revolve(prof, seg = 24) { const pos = [], nor = [], uv = []; let acc = 0;
+  for (let i = 0; i < prof.length - 1; i++) { const [r0, y0] = prof[i], [r1, y1] = prof[i + 1], dr = r1 - r0, dy = y1 - y0, L = Math.hypot(dr, dy) || 1, nr = dy / L, ny = -dr / L;
+    for (let s = 0; s < seg; s++) { const a0 = TAU * s / seg, a1 = TAU * (s + 1) / seg, P = (r, y, a) => [r * Math.sin(a), y, r * Math.cos(a)], N = a => [nr * Math.sin(a), ny, nr * Math.cos(a)], ra = (r0 + r1) / 2;
+      const A = P(r0, y0, a0), B = P(r0, y0, a1), C = P(r1, y1, a1), D = P(r1, y1, a0), nA = N(a0), nB = N(a1);
+      pos.push(...A, ...B, ...C, ...A, ...C, ...D); nor.push(...nA, ...nB, ...nB, ...nA, ...nB, ...nA); uv.push(a0 * ra, acc, a1 * ra, acc, a1 * ra, acc + L, a0 * ra, acc, a1 * ra, acc + L, a0 * ra, acc + L); }
+    acc += L; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); return g; }
+function add(g, geo, m, p = [0, 0, 0], r = [0, 0, 0]) { const o = new THREE.Mesh(geo, m); o.position.copy(v3(p)); o.rotation.set(r[0], r[1], r[2]); g.add(o); return o; }
+function rod(g, m, a, b, r, seg = 12, open = false) { a = v3(a); b = v3(b); const d = b.clone().sub(a), o = new THREE.Mesh(cylG(r, r, d.length(), seg, open), m); o.position.copy(a).add(b).multiplyScalar(.5); o.quaternion.setFromUnitVectors(YUP, d.normalize()); g.add(o); return o; }
+function sub(parent, pos, dir) { const s = new THREE.Group(); s.position.copy(v3(pos)); if (dir) s.quaternion.setFromUnitVectors(YUP, v3(dir).normalize()); parent.add(s); return s; }
+function nut(g, pos, dir, r = .04, h = .035) { const o = new THREE.Mesh(nutG(r, h), M.bolt); o.position.copy(v3(pos)); o.quaternion.setFromUnitVectors(YUP, v3(dir).normalize()); g.add(o); return o; }
+function basis(g, geo, m, pos, X, Y) { const o = new THREE.Mesh(geo, m), Z = new V3().crossVectors(X, Y); o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z)); o.position.copy(pos); g.add(o); return o; }
+function plateBetween(g, m, a, b, y0, y1, t) { const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz); return add(g, boxG(L, y1 - y0, t), m, [(a[0] + b[0]) / 2, (y0 + y1) / 2, (a[1] + b[1]) / 2], [0, -Math.atan2(dz, dx), 0]); }
+
+/* paths in the XZ plane: at(t) → point + unit tangent; lateral s is +90° from the tangent (flow +X ⇒ +s = +Z = right) */
+const lineP = (x0, z0, x1, z1) => { const L = Math.hypot(x1 - x0, z1 - z0), tx = (x1 - x0) / L, tz = (z1 - z0) / L; return { len: L, n: 1, x0, x1, at: t => ({ x: x0 + (x1 - x0) * t, z: z0 + (z1 - z0) * t, tx, tz }), tX: x => (x - x0) / (x1 - x0) }; };
+const arcP = (cx, cz, R, a0, a1, n = 12) => { const sg = Math.sign(a1 - a0); return { len: Math.abs(a1 - a0) * R, n, at: t => { const a = a0 + (a1 - a0) * t; return { x: cx + R * Math.cos(a), z: cz + R * Math.sin(a), tx: -Math.sin(a) * sg, tz: Math.cos(a) * sg }; } }; };
+const pt = (f, s, y) => new V3(f.x - f.tz * s, y, f.z + f.tx * s);
+const latV = f => new V3(-f.tz, 0, f.tx), tanV = f => new V3(f.tx, 0, f.tz);
+function boxAt(g, m, c, f, L, H, W) { return add(g, boxG(L, H, W), m, c, [0, -Math.atan2(f.tz, f.tx), 0]); }
+/** Rectangular section [s0,s1]×[y0,y1] swept along a path. UV in studs: u along path, v across (top/bottom) or up (sides). */
+function sweepBox(path, sa, sb, y0, y1, o = {}) {
+  const s0 = Math.min(sa, sb), s1 = Math.max(sa, sb), n = path.n, F = [], b = new GB(); for (let i = 0; i <= n; i++) F.push(path.at(i / n));
+  const faces = [['top', [s0, y1], [s1, y1], f => YUP, 's'], ['bot', [s0, y0], [s1, y0], f => YUP.clone().negate(), 's'], ['out', [s1, y0], [s1, y1], f => latV(f), 'y'], ['in', [s0, y0], [s0, y1], f => latV(f).negate(), 'y']];
+  for (const [k, c1, c2, nf, vk] of faces) { if (o.skip && o.skip.includes(k)) continue;
+    for (let i = 0; i < n; i++) { const f0 = F[i], f1 = F[i + 1], u0 = i / n * path.len, u1 = (i + 1) / n * path.len, v1 = vk === 's' ? c1[0] : c1[1], v2 = vk === 's' ? c2[0] : c2[1];
+      b.quad(pt(f0, c1[0], c1[1]), pt(f1, c1[0], c1[1]), pt(f1, c2[0], c2[1]), pt(f0, c2[0], c2[1]), nf(f0), nf(f1), nf(f1), nf(f0), [u0, v1], [u1, v1], [u1, v2], [u0, v2]); } }
+  if (o.caps) for (const [i, sg] of [[0, -1], [n, 1]]) { const f = F[i], nn = tanV(f).multiplyScalar(sg); b.quad(pt(f, s0, y0), pt(f, s1, y0), pt(f, s1, y1), pt(f, s0, y1), nn, nn, nn, nn, [s0, y0], [s1, y0], [s1, y1], [s0, y1]); }
+  return b.geo();
+}
+
+/* ================= piece scaffolding ================= */
+const BELT_Y = 1.32, PY = 1.5, PR = .6;
+const kitRoot = new THREE.Group(); kitRoot.name = 'CV_PP_Kit';
+const pieces = [];
+function piece(name, kind, ends, build, extra = {}) {
+  const g = new THREE.Group(); g.name = name; const parts = {};
+  const P = n => parts[n] || (parts[n] = (() => { const q = new THREE.Group(); q.name = n; g.add(q); return q; })());
+  build(P); mergePiece(g);
+  g.userData = { kind, ends: ends.map(([x, z, nx, nz, type]) => ({ p: [x, type === 'belt' ? BELT_Y : PY, z], n: [nx, 0, nz], type })), ...extra };
+  pieces.push(g); kitRoot.add(g); return g;
+}
+function mergePiece(pc) {
+  pc.updateMatrixWorld(true); const inv = pc.matrixWorld.clone().invert(), out = [];
+  for (const part of [...pc.children]) { const byMat = new Map();
+    part.traverse(o => { if (!o.isMesh) return; let geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+      for (const k of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(k)) geo.deleteAttribute(k);
+      if (!geo.attributes.normal) geo.computeVertexNormals(); if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+      geo.applyMatrix4(inv.clone().multiply(o.matrixWorld)); const sc = o.material.userData.uvScale || 1;
+      if (sc !== 1) { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * sc, uv.getY(i) * sc); }
+      if (!byMat.has(o.material)) byMat.set(o.material, []); byMat.get(o.material).push(geo); });
+    let total = 0; for (const l of byMat.values()) for (const gg of l) total += gg.attributes.position.count;
+    const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), uv = new Float32Array(total * 2), geo = new THREE.BufferGeometry(), mats = []; let off = 0, mi = 0;
+    for (const [m, l] of byMat) { const st = off; for (const gg of l) { const n = gg.attributes.position.count; pos.set(gg.attributes.position.array, off * 3); nor.set(gg.attributes.normal.array, off * 3); uv.set(gg.attributes.uv.array.subarray(0, n * 2), off * 2); off += n; } geo.addGroup(st, off - st, mi++); mats.push(m); }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); geo.computeBoundingBox(); geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, mats.length === 1 ? mats[0] : mats); mesh.name = pc.name + '_' + part.name; pc.remove(part); out.push(mesh); }
+  out.forEach(m => pc.add(m));
+}
+
+/* ================= belt builders ================= */
+function beltRun(P, o) {
+  const path = o.path, fp = o.fpath || path, gp = o.gpath || path, B = P('Belt'), Fr = P('Frame'), I = P('Idlers'), Bo = P('Bolts');
+  add(B, sweepBox(path, -1.5, 1.5, 1.29, BELT_Y), M.belt);
+  add(B, sweepBox(o.rpath || path, -1.5, 1.5, .80, .82), M.belt);
+  for (const sd of [-1, 1]) {
+    add(Fr, sweepBox(fp, sd * 1.89, sd * 1.95, .98, 1.28), M.teal);
+    add(Fr, sweepBox(fp, sd * 1.80, sd * 1.89, 1.24, 1.28, { skip: ['out'] }), M.teal);
+    add(Fr, sweepBox(fp, sd * 1.80, sd * 1.89, .98, 1.02, { skip: ['out'] }), M.teal);
+  }
+  (o.open || [1, 1]).forEach((op, k) => { if (!op) return; const f = fp.at(k), inw = k ? -1 : 1, tg = tanV(f).multiplyScalar(inw);
+    for (const sd of [-1, 1]) { boxAt(Fr, M.teal, pt(f, sd * 1.86, 1.13).addScaledVector(tg, .012), f, .024, .3, .18);
+      for (const y of [1.06, 1.2]) nut(Bo, pt(f, sd * 1.86, y).addScaledVector(tg, .024), tg); } });
+  const inn = o.inner || 0, lim = (sd, a, b) => sd === inn ? b : a, rs0 = inn === -1 ? -1.40 : -1.55, rs1 = inn === 1 ? 1.40 : 1.55, cA = inn === -1 ? -1.5 : -1.89, cB = inn === 1 ? 1.5 : 1.89;
+  for (const t of o.idlers || []) { const f = path.at(t), s0 = o.iS0 ?? rs0, s1 = o.iS1 ?? rs1;
+    rod(I, M.steel, pt(f, s0, 1.205), pt(f, s1, 1.205), .085, 12); rod(I, M.steel, pt(f, s0 - .05, 1.205), pt(f, s1 + .05, 1.205), .022, 6);
+    for (const sd of [-1, 1]) { if (o.noBr && o.noBr.includes(sd)) continue; boxAt(I, M.galv, pt(f, sd * lim(sd, 1.635, 1.46), 1.13), f, .1, .2, .03); }
+    boxAt(Fr, M.teal, pt(f, (cA + cB) / 2, 1.01), f, .08, .05, cB - cA);
+    for (const sd of [-1, 1]) if (sd !== inn) nut(Bo, pt(f, sd * 1.95, 1.06), latV(f).multiplyScalar(sd)); }
+  for (const t of o.rets || []) { const f = path.at(t); rod(I, M.steel, pt(f, rs0, .715), pt(f, rs1, .715), .085, 12);
+    for (const sd of [-1, 1]) { boxAt(I, M.galv, pt(f, sd * lim(sd, 1.68, 1.46), .86), f, .08, .3, .03); if (sd !== inn) nut(Bo, pt(f, sd * 1.95, .99), latV(f).multiplyScalar(sd)); } }
+  for (const t of o.legs || []) { const f = fp.at(t), L = P('Legs');
+    for (const sd of [-1, 1]) { const ls = sd * lim(sd, 1.865, 1.62), fs = sd * lim(sd, 1.8, 1.62); boxAt(L, M.galv, pt(f, ls, .5), f, .09, .96, .09); boxAt(L, M.galv, pt(f, fs, .012), f, .3, .024, .26);
+      for (const k of [-1, 1]) nut(Bo, pt(f, fs, .024).addScaledVector(tanV(f), k * .1), YUP, .035, .03); }
+    const bA = inn === -1 ? -1.6 : -1.82, bB = inn === 1 ? 1.6 : 1.82; boxAt(L, M.galv, pt(f, (bA + bB) / 2, .34), f, .06, .06, bB - bA); rod(L, M.galv, pt(f, bA, .38), pt(f, bB, .93), .028, 4); }
+  for (const sd of o.guards || []) { const G = P('Guards'), S = P('Skirt');
+    if (o.kick !== false) add(G, sweepBox(gp, sd * 1.52, sd * 1.55, 1.36, 1.62, { caps: true }), M.yellow);
+    add(G, sweepBox(gp, sd * 1.66, sd * 1.72, 1.82, 1.88, { caps: true }), M.yellow);
+    if (o.kick !== false) add(S, sweepBox(gp, sd * 1.48, sd * 1.54, 1.322, 1.40), M.rubber);
+    for (const t of o.posts || []) { const f = gp.at(t); boxAt(G, M.yellow, pt(f, sd * 1.69, 1.55), f, .05, .54, .05);
+      if (o.kick !== false) { boxAt(G, M.yellow, pt(f, sd * 1.605, 1.5), f, .04, .04, .13); nut(Bo, pt(f, sd * 1.555, 1.44), latV(f).multiplyScalar(-sd), .03, .02); } } }
+  if (o.chev != null) { const f = path.at(o.chev), s = o.chevS || 1.2, g = new THREE.PlaneGeometry(s, s); g.rotateX(-Math.PI / 2); add(P('Chevron'), g, M.chev, pt(f, 0, BELT_Y + .0015), [0, -Math.atan2(f.tz, f.tx), 0]); }
+  if (o.splice != null) { const f = path.at(o.splice), Sp = P('Splice'); for (let i = 0; i < 8; i++) boxAt(Sp, M.bolt, pt(f, -1.33 + i * .38, BELT_Y + .0035), f, .05, .007, .28);
+    boxAt(Sp, M.rubber, pt(f, 0, BELT_Y + .0006), f, .012, .0012, 2.98); }
+}
+function pulley(P, f, yc, R, dir, bear = 1.71) {
+  const Pu = P('Pulley');
+  rod(Pu, M.iron, pt(f, -1.55, yc), pt(f, 1.55, yc), R - .03, 16); rod(Pu, M.steel, pt(f, -1.84, yc), pt(f, 1.84, yc), .035, 8);
+  for (const sd of [-1, 1]) rod(Pu, M.iron, pt(f, sd * 1.55, yc), pt(f, sd * 1.5, yc), R + .012, 16, true);
+  basis(P('Belt'), cylG(R, R, 3.0, 16, true, 0, Math.PI), M.belt, pt(f, 0, yc), tanV(f).multiplyScalar(dir), latV(f));
+  const Be = P('Bearings');
+  for (const sd of [-1, 1]) { boxAt(Be, M.iron, pt(f, sd * bear, yc), f, .26, .2, .16); rod(Be, M.brass, pt(f, sd * bear, yc + .1), pt(f, sd * bear, yc + .15), .012, 6);
+    for (const k of [-1, 1]) nut(P('Bolts'), pt(f, sd * bear, yc + .1).addScaledVector(tanV(f), k * .09), YUP, .03, .025); }
+}
+/** side feeder entering from −Z (side −1) or +Z (side +1), discharging over a transfer plate onto the main belt */
+function feeder(P, side) {
+  const z0 = side * 2, zp = side * 1.66, path = lineP(0, z0, 0, zp), f1 = path.at(1), B = P('Belt');
+  add(B, sweepBox(path, -1.5, 1.5, 1.29, BELT_Y), M.belt);
+  { const g = new GB(), c = (x, y, z) => new V3(x, y, z), up = new V3(0, 1, 0), dn = new V3(0, -1, 0), L = Math.abs(zp - z0);
+    g.quad(c(-1.5, .82, z0), c(1.5, .82, z0), c(1.5, 1.05, zp), c(-1.5, 1.05, zp), up, up, up, up, [0, -1.5], [0, 1.5], [L, 1.5], [L, -1.5]);
+    g.quad(c(-1.5, .80, z0), c(1.5, .80, z0), c(1.5, 1.03, zp), c(-1.5, 1.03, zp), dn, dn, dn, dn, [0, -1.5], [0, 1.5], [L, 1.5], [L, -1.5]);
+    for (const sx of [-1, 1]) { const n = new V3(sx, 0, 0); g.quad(c(sx * 1.5, .80, z0), c(sx * 1.5, .82, z0), c(sx * 1.5, 1.05, zp), c(sx * 1.5, 1.03, zp), n, n, n, n); }
+    add(B, g.geo(), M.belt); }
+  const Pu = P('Pulley'); rod(Pu, M.iron, pt(f1, -1.5, 1.18), pt(f1, 1.5, 1.18), .11, 12); rod(Pu, M.steel, pt(f1, -1.82, 1.18), pt(f1, 1.82, 1.18), .03, 8);
+  basis(B, cylG(.14, .14, 3.0, 12, true, 0, Math.PI), M.belt, pt(f1, 0, 1.18), tanV(f1), latV(f1));
+  const Be = P('Bearings'); for (const sx of [-1, 1]) { add(Be, boxG(.2, .17, .2), M.iron, [sx * 1.7, 1.18, zp]); add(Be, boxG(.14, .14, .11), M.galv, [sx * 1.7, 1.15, side * 1.835]); rod(Be, M.brass, [sx * 1.7, 1.265, zp], [sx * 1.7, 1.31, zp], .012, 6); }
+  add(P('Plate'), boxG(2.9, .012, .4), M.galv, [0, 1.333, side * 1.32]); add(P('Plate'), boxG(2.9, .03, .03), M.galv, [0, 1.325, side * 1.13]);
+  const fs = lineP(0, z0, 0, side * 1.955), Fr = P('Frame');
+  for (const sd of [-1, 1]) { add(Fr, sweepBox(fs, sd * 1.89, sd * 1.95, .98, 1.28), M.teal); add(Fr, sweepBox(fs, sd * 1.80, sd * 1.89, 1.24, 1.28, { skip: ['out'] }), M.teal); add(Fr, sweepBox(fs, sd * 1.80, sd * 1.89, .98, 1.02, { skip: ['out'] }), M.teal);
+    const f = fs.at(0), tg = tanV(f); boxAt(Fr, M.teal, pt(f, sd * 1.86, 1.13).addScaledVector(tg, .012), f, .024, .3, .18); for (const y of [1.06, 1.2]) nut(P('Bolts'), pt(f, sd * 1.86, y).addScaledVector(tg, .024), tg); }
+  const G = P('Guards'), S = P('Skirt'), gp = lineP(0, z0, 0, side * 1.6);
+  for (const sd of [-1, 1]) { add(G, sweepBox(gp, sd * 1.52, sd * 1.55, 1.36, 1.62, { caps: true }), M.yellow); add(G, sweepBox(gp, sd * 1.66, sd * 1.72, 1.82, 1.88, { caps: true }), M.yellow); add(S, sweepBox(gp, sd * 1.48, sd * 1.54, 1.322, 1.40), M.rubber);
+    const f = gp.at(.5); boxAt(G, M.yellow, pt(f, sd * 1.69, 1.55), f, .05, .54, .05); }
+}
+function endGuard(P, x) { const G = P('EndGuard');
+  const pl = new THREE.PlaneGeometry(3.8, .86); pl.rotateY(-Math.PI / 2); const uv = pl.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 3.8, uv.getY(i) * .86); add(G, pl, M.guardMesh, [x + .015, 1.05, 0]);
+  for (const y of [.61, 1.49]) add(G, boxG(.03, .03, 3.86), M.yellow, [x + .015, y, 0]);
+  for (const z of [-1.915, 0, 1.915]) add(G, boxG(.03, .91, .03), M.yellow, [x + .015, 1.05, z]);
+  add(G, boxG(.33, .025, 3.3), M.yellow, [x + .18, 1.51, 0]); add(G, boxG(.02, .06, 3.3), M.yellow, [x + .335, 1.49, 0]);
+  for (const z of [-1.4, 1.4]) nut(P('Bolts'), [x + .1, 1.523, z], YUP, .03, .02); }
+function collar(P, xw, dir) { const C = P('Collar'), xc = xw - dir * .03;
+  add(C, boxG(.06, .2, 2.9), M.galv, [xc, 2.98, 0]); add(C, boxG(.06, .22, 2.9), M.galv, [xc, 1.11, 0]);
+  for (const sd of [-1, 1]) add(C, boxG(.06, 2.08, .2), M.galv, [xc, 2.04, sd * 1.33]);
+  const xf = xw - dir * .06, d = [-dir, 0, 0];
+  for (const sd of [-1, 1]) for (const y of [1.32, 1.76, 2.2, 2.64]) nut(P('Bolts'), [xf, y, sd * 1.33], d);
+  for (const z of [-1.0, -.35, .35, 1.0]) { nut(P('Bolts'), [xf, 2.98, z], d); nut(P('Bolts'), [xf, 1.1, z], d); } }
+
+const tX = (p, xs) => xs.map(x => p.tX(x));
+/* ---- CV_Straight ---- */
+piece('CV_Straight', 'belt', [[-2, 0, -1, 0, 'belt'], [2, 0, 1, 0, 'belt']], P => { const p = lineP(-2, 0, 2, 0);
+  beltRun(P, { path: p, idlers: tX(p, [-1.5, -.5, .5, 1.5]), rets: tX(p, [-1]), legs: tX(p, [0]), guards: [-1, 1], posts: tX(p, [-1, 1]), chev: p.tX(.4), splice: p.tX(-1.1) }); });
+/* ---- turns (TurnRight is modelled on its own arc, not a rotated TurnLeft) ---- */
+piece('CV_TurnLeft', 'belt', [[0, -2, 0, -1, 'belt'], [2, 0, 1, 0, 'belt']], P => { const p = arcP(2, -2, 2, Math.PI, Math.PI / 2, 12);
+  beltRun(P, { path: p, inner: -1, idlers: [.11, .37, .63, .89], rets: [.25, .75], legs: [.5], guards: [1], posts: [.17, .5, .83], chev: .5, splice: .24 }); });
+piece('CV_TurnRight', 'belt', [[0, 2, 0, 1, 'belt'], [2, 0, 1, 0, 'belt']], P => { const p = arcP(2, 2, 2, Math.PI, 1.5 * Math.PI, 12);
+  beltRun(P, { path: p, inner: 1, idlers: [.11, .37, .63, .89], rets: [.25, .75], legs: [.5], guards: [-1], posts: [.17, .5, .83], chev: .5, splice: .76 }); });
+/* ---- merges ---- */
+const mainMerge = (P, sides, tail) => { const p = tail ? lineP(-1.68, 0, 2, 0) : lineP(-2, 0, 2, 0), fp = tail ? lineP(-1.95, 0, 2, 0) : p, sl = sides.includes(-1), sr = sides.includes(1);
+  beltRun(P, { path: p, fpath: fp, open: [tail ? 0 : 1, 1], idlers: tX(p, tail ? [-.5, .5, 1.5] : [-1.5, -.5, .5, 1.5]), iS0: sl ? -1.45 : -1.55, iS1: sr ? 1.45 : 1.55, noBr: sides, rets: tX(p, [-1]), legs: tX(fp, [-1.72, 1.72]),
+    guards: [-1, 1].filter(s => !sides.includes(s)), posts: tX(p, [-1, 1]), chev: p.tX(.45), splice: p.tX(-.95) });
+  if (tail) { pulley(P, p.at(0), 1.06, .26, -1); endGuard(P, -1.95); }
+  sides.forEach(s => feeder(P, s)); };
+piece('CV_MergeLeft', 'belt', [[-2, 0, -1, 0, 'belt'], [0, -2, 0, -1, 'belt'], [2, 0, 1, 0, 'belt']], P => mainMerge(P, [-1], false));
+piece('CV_MergeRight', 'belt', [[-2, 0, -1, 0, 'belt'], [0, 2, 0, 1, 'belt'], [2, 0, 1, 0, 'belt']], P => mainMerge(P, [1], false));
+piece('CV_MergeSides', 'belt', [[0, -2, 0, -1, 'belt'], [0, 2, 0, 1, 'belt'], [2, 0, 1, 0, 'belt']], P => mainMerge(P, [-1, 1], true));
+piece('CV_MergeAll', 'belt', [[-2, 0, -1, 0, 'belt'], [0, -2, 0, -1, 'belt'], [0, 2, 0, 1, 'belt'], [2, 0, 1, 0, 'belt']], P => mainMerge(P, [-1, 1], false));
+/* ---- CV_Start: tail pulley with screw take-ups and an end guard ---- */
+piece('CV_Start', 'belt', [[2, 0, 1, 0, 'belt']], P => { const p = lineP(-1.68, 0, 2, 0), fp = lineP(-1.95, 0, 2, 0), gp = lineP(-1.62, 0, 2, 0);
+  beltRun(P, { path: p, fpath: fp, gpath: gp, open: [0, 1], idlers: tX(p, [-.5, .5, 1.5]), rets: tX(p, [-1]), legs: tX(fp, [0]), guards: [-1, 1], posts: tX(gp, [-1, 1]), chev: p.tX(.4), splice: p.tX(-.95) });
+  const f = p.at(0); pulley(P, f, 1.06, .26, -1);
+  for (const sd of [-1, 1]) { rod(P('Bearings'), M.steel, pt(f, sd * 1.71, 1.06), [-1.935, 1.06, sd * 1.71], .02, 6); nut(P('Bolts'), [-1.92, 1.06, sd * 1.71], [-1, 0, 0], .035, .03); }
+  endGuard(P, -1.95); });
+/* ---- bridges (exact length along X, Z width 4, origin at centre) ---- */
+for (const L of [1, 2, 3]) piece('CV_Bridge' + L, 'belt', [[-L / 2, 0, -1, 0, 'belt'], [L / 2, 0, 1, 0, 'belt']], P => { const p = lineP(-L / 2, 0, L / 2, 0);
+  beltRun(P, { path: p, idlers: tX(p, { 1: [0], 2: [-.5, .5], 3: [-1, 0, 1] }[L]), rets: L === 3 ? tX(p, [-.5]) : L === 1 ? tX(p, [0]) : [], legs: L > 1 ? tX(p, [L === 2 ? 0 : .5]) : [], guards: [-1, 1], posts: tX(p, L === 1 ? [-.3, .3] : [-.5, .5].map(x => x * (L - 1))),
+    chev: p.tX(L === 1 ? -.12 : .25), chevS: L === 1 ? .62 : 1.1, splice: p.tX(L === 1 ? .36 : -.55) }); }, { bridge: L });
+/* ---- CV_PortIn: belt → head pulley → narrowing transfer chute, curtain, collar (origin at −X end; +X face on the wall) ---- */
+piece('CV_PortIn', 'belt', [[0, 0, -1, 0, 'belt'], [1, 0, 1, 0, 'wall']], P => { const p = lineP(0, 0, .32, 0), fp = lineP(0, 0, .58, 0), gp = lineP(0, 0, .36, 0);
+  beltRun(P, { path: p, fpath: fp, gpath: gp, open: [1, 0], idlers: [p.tX(.11)], legs: [fp.tX(.24)], guards: [-1, 1], posts: [], chev: p.tX(.2), chevS: .24, splice: p.tX(.03) });
+  pulley(P, p.at(1), 1.06, .26, 1);
+  const C = P('Chute');
+  add(C, boxG(.4, .02, 2.42), M.galv, [.78, 1.28, 0], [0, 0, -Math.atan2(.04, .42)]);
+  for (const sd of [-1, 1]) { plateBetween(C, M.teal, [.36, sd * 1.6], [.975, sd * 1.21], 1.12, 2.86, .04); plateBetween(C, M.teal, [.36, sd * 1.64], [.965, sd * 1.25], 2.4, 2.48, .06); }
+  const sh = new THREE.Shape(); sh.moveTo(.36, -1.64); sh.lineTo(.995, -1.25); sh.lineTo(.995, 1.25); sh.lineTo(.36, 1.64); sh.closePath();
+  const rg = new THREE.ExtrudeGeometry(sh, { depth: .04, bevelEnabled: false }); rg.rotateX(Math.PI / 2); add(C, rg, M.teal, [0, 2.9, 0]);
+  add(C, boxG(.06, .08, 3.3), M.teal, [.39, 2.92, 0]);
+  rod(C, M.galv, [.9, 2.8, -1.21], [.9, 2.8, 1.21], .025, 8);
+  const Cu = P('Curtain'); for (let i = 0; i < 6; i++) add(Cu, boxG(.012, 1.42, .38), M.rubber, [.9 + (i % 2) * .004, 2.09, -1.0 + i * .4], [0, 0, rr(-.025, .025)]);
+  collar(P, 1.0, 1); });
+/* ---- CV_PortOut: collar + discharge lip + flared skirt boards onto a short tail section (origin at +X end; −X face on the wall) ---- */
+piece('CV_PortOut', 'belt', [[0, 0, 1, 0, 'belt'], [-1, 0, -1, 0, 'wall']], P => { const p = lineP(-.66, 0, 0, 0), fp = lineP(-.95, 0, 0, 0);
+  beltRun(P, { path: p, fpath: fp, open: [0, 1], idlers: [p.tX(-.3)], legs: [fp.tX(-.42)], guards: [-1, 1], kick: false, posts: [fp.tX(-.2)], gpath: fp, chev: p.tX(-.2), chevS: .34, splice: p.tX(-.46) });
+  pulley(P, p.at(0), 1.06, .26, -1);
+  const C = P('Chute'), L = Math.hypot(.52, .3);
+  add(C, boxG(L, .02, 2.36), M.galv, [-.68, 1.65, 0], [0, 0, -Math.atan2(.3, .52)]); add(C, boxG(.02, .08, 2.36), M.galv, [-.42, 1.47, 0]);
+  for (const sd of [-1, 1]) { plateBetween(C, M.galv, [-.94, sd * 1.19], [-.42, sd * 1.19], 1.52, 1.9, .02); rod(C, M.galv, [-.94, 1.25, sd * .9], [-.62, 1.62, sd * .9], .025, 6); }
+  const S = P('Skirt');
+  for (const sd of [-1, 1]) { plateBetween(S, M.teal, [-.94, sd * 1.24], [-.04, sd * 1.34], 1.42, 1.88, .035); plateBetween(S, M.rubber, [-.94, sd * 1.225], [-.04, sd * 1.325], 1.322, 1.44, .025);
+    for (const x of [-.66, -.26]) { add(S, boxG(.05, .05, .3), M.galv, [x, 1.72, sd * 1.5]); nut(P('Bolts'), [x, 1.745, sd * 1.58], YUP, .03, .025); } }
+  collar(P, -1.0, -1); });
+
+/* ================= pipe builders ================= */
+function pipeRod(P, a, b) { rod(P('Tint'), M.pipe, a, b, PR, 20, true); }
+function flange(P, c, n, o = {}) { const ro = o.ro || .82, rb = o.rb || .73, hub = o.hub || .26, s = sub(P('Flanges'), c, n);
+  add(s, revolve([[.6, -hub], [.66, -.11], [ro, -.11], [ro, 0], [.585, 0]], 20), M.galv);
+  const b = sub(P('Bolts'), c, n); for (let i = 0; i < 8; i++) { const a = (i + .5) / 8 * TAU, g = nutG(.05, .045); g.rotateX(Math.PI); add(b, g, M.bolt, [rb * Math.sin(a), -.11, rb * Math.cos(a)]); }
+  if (o.bore !== false) { const d = sub(P('Bore'), c, n), cg = new THREE.CircleGeometry(.585, 20); cg.rotateX(-Math.PI / 2); add(d, cg, M.dark, [0, -.006, 0]); } }
+function support(P, x, z, ry = 0) { const s = sub(P('Support'), [x, 0, z]), u = sub(P('Bolts'), [x, 0, z]); s.rotation.y = ry; u.rotation.y = ry;
+  add(s, boxG(.52, .03, .52), M.galv, [0, .015, 0]); for (const a of [-1, 1]) for (const b of [-1, 1]) nut(u, [a * .19, .03, b * .19], YUP, .035, .03);
+  add(s, boxG(.16, .7, .16), M.galv, [0, .38, 0]); add(s, boxG(.06, .3, 1.0), M.galv, [0, .86, 0]); add(s, boxG(.3, .03, 1.0), M.galv, [0, .725, 0]);
+  const sg = cylG(.63, .63, .32, 10, true, Math.PI / 2 - 70 * DEG, 140 * DEG); sg.rotateZ(-Math.PI / 2); add(s, sg, M.galv, [0, PY, 0]);
+  for (const sd of [-1, 1]) { add(s, boxG(.22, .03, .2), M.galv, [0, 1.27, sd * .7]); }
+  const ub = new THREE.TorusGeometry(.63, .022, 4, 10, Math.PI); ub.rotateY(Math.PI / 2); add(u, ub, M.bolt, [0, PY, 0]);
+  for (const sd of [-1, 1]) { rod(u, M.bolt, [0, PY, sd * .63], [0, 1.25, sd * .63], .022, 6); nut(u, [0, 1.285, sd * .63], YUP, .04, .035); } }
+function weld(P, sgn) { const pts = []; for (let i = 0; i < 36; i++) { const t = i / 36 * TAU; pts.push(new V3(.61 * Math.cos(t), PY + .61 * Math.sin(t), sgn * .61 * Math.abs(Math.cos(t)))); }
+  add(P('Tint'), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 22, .035, 3, true), M.pipe); }
+const fl = (P, x, z, nx, nz, o) => flange(P, [x, PY, z], [nx, 0, nz], o);
+piece('PP_Straight', 'pipe', [[-2, 0, -1, 0, 'pipe'], [2, 0, 1, 0, 'pipe']], P => { fl(P, -2, 0, -1, 0); fl(P, 2, 0, 1, 0); pipeRod(P, [-1.76, PY, 0], [1.76, PY, 0]); support(P, 0, 0); });
+piece('PP_Elbow', 'pipe', [[0, -2, 0, -1, 'pipe'], [2, 0, 1, 0, 'pipe']], P => {
+  const tg = new THREE.TorusGeometry(2, PR, 20, 16, Math.PI / 2), uv = tg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * Math.PI, uv.getY(i) * TAU * PR);
+  tg.rotateX(Math.PI / 2); tg.rotateY(-Math.PI / 2); add(P('Tint'), tg, M.pipe, [2, PY, -2]);
+  fl(P, 0, -2, 0, -1); fl(P, 2, 0, 1, 0); support(P, 2 - Math.SQRT2, -2 + Math.SQRT2, -Math.PI / 4); });
+piece('PP_Tee', 'pipe', [[-2, 0, -1, 0, 'pipe'], [0, -2, 0, -1, 'pipe'], [2, 0, 1, 0, 'pipe']], P => {
+  pipeRod(P, [-1.76, PY, 0], [1.76, PY, 0]); pipeRod(P, [0, PY, -.3], [0, PY, -1.76]); weld(P, -1);
+  fl(P, -2, 0, -1, 0); fl(P, 2, 0, 1, 0); fl(P, 0, -2, 0, -1); support(P, 1.05, 0); });
+piece('PP_Cross', 'pipe', [[-2, 0, -1, 0, 'pipe'], [0, -2, 0, -1, 'pipe'], [0, 2, 0, 1, 'pipe'], [2, 0, 1, 0, 'pipe']], P => {
+  pipeRod(P, [-1.76, PY, 0], [1.76, PY, 0]); pipeRod(P, [0, PY, -1.76], [0, PY, 1.76]); weld(P, -1); weld(P, 1);
+  for (const [x, z] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) fl(P, x, z, Math.sign(x), Math.sign(z)); support(P, 1.12, 0); });
+piece('PP_End', 'pipe', [[2, 0, 1, 0, 'pipe']], P => {
+  pipeRod(P, [-1.4, PY, 0], [1.76, PY, 0]); fl(P, 2, 0, 1, 0); fl(P, -1.42, 0, -1, 0, { bore: false });
+  const bl = cylG(.82, .82, .08, 24); bl.rotateZ(-Math.PI / 2); add(P('Flanges'), bl, M.galv, [-1.46, PY, 0]);
+  for (let i = 0; i < 8; i++) { const a = (i + .5) / 8 * TAU; nut(P('Bolts'), [-1.5, PY + .73 * Math.cos(a), .73 * Math.sin(a)], [-1, 0, 0], .05, .045); }
+  const V = P('Valve'); rod(V, M.galv, [-1.05, .95, 0], [-1.05, .7, 0], .07, 10); add(V, new THREE.SphereGeometry(.1, 10, 6), M.iron, [-1.05, .62, 0]);
+  rod(V, M.galv, [-1.05, .55, 0], [-1.05, .44, 0], .055, 10); add(V, nutG(.07, .05).rotateX(Math.PI), M.iron, [-1.05, .44, 0]);
+  add(P('Wheel'), boxG(.3, .025, .045), M.red, [-.9, .66, 0]); rod(V, M.steel, [-1.05, .62, 0], [-1.05, .68, 0], .015, 6);
+  support(P, .45, 0); });
+for (const L of [1, 2, 3]) piece('PP_Bridge' + L, 'pipe', [[-L / 2, 0, -1, 0, 'pipe'], [L / 2, 0, 1, 0, 'pipe']], P => {
+  fl(P, -L / 2, 0, -1, 0); fl(P, L / 2, 0, 1, 0); pipeRod(P, [-L / 2 + .24, PY, 0], [L / 2 - .24, PY, 0]); if (L > 1) support(P, 0, 0); }, { bridge: L });
+piece('PP_Port', 'pipe', [[0, 0, -1, 0, 'pipe'], [1, 0, 1, 0, 'wall']], P => {
+  fl(P, 0, 0, -1, 0, { hub: .24 }); pipeRod(P, [.2, PY, 0], [.31, PY, 0]); pipeRod(P, [.69, PY, 0], [.8, PY, 0]);
+  fl(P, 1, 0, 1, 0, { ro: .95, rb: .86, hub: .2 });
+  const V = P('Valve');
+  for (const x of [.33, .67]) { const g = cylG(.82, .82, .06, 24); g.rotateZ(-Math.PI / 2); add(V, g, M.iron, [x, PY, 0]); }
+  const bg = cylG(.66, .66, .28, 24, true); bg.rotateZ(-Math.PI / 2); add(V, bg, M.iron, [.5, PY, 0]);
+  for (let i = 0; i < 8; i++) { const a = (i + .5) / 8 * TAU, y = PY + .73 * Math.cos(a), z = .73 * Math.sin(a); nut(P('Bolts'), [.3, y, z], [-1, 0, 0], .05, .045); nut(P('Bolts'), [.7, y, z], [1, 0, 0], .05, .045); }
+  add(V, boxG(.3, .42, .46), M.iron, [.5, 2.24, 0]); add(V, boxG(.36, .05, .56), M.iron, [.5, 2.47, 0]);
+  for (const z of [-.13, .13]) rod(V, M.iron, [.5, 2.49, z], [.5, 2.8, z], .025, 6);
+  add(V, boxG(.1, .05, .34), M.iron, [.5, 2.8, 0]); rod(V, M.steel, [.5, 2.45, 0], [.5, 3.0, 0], .028, 8);
+  const W = P('Wheel'), tw = new THREE.TorusGeometry(.32, .03, 5, 20); tw.rotateX(Math.PI / 2); add(W, tw, M.red, [.5, 2.9, 0]);
+  for (let i = 0; i < 4; i++) { const a = i / 4 * TAU + Math.PI / 4; add(W, boxG(.6, .03, .04), M.red, [.5, 2.9, 0], [0, a, 0]); }
+  rod(W, M.red, [.5, 2.86, 0], [.5, 2.94, 0], .06, 10);
+  for (let i = 0; i < 8; i++) { const a = (i + .5) / 8 * TAU; rod(P('Bolts'), M.bolt, [.86, PY + .86 * Math.cos(a), .86 * Math.sin(a)], [.9, PY + .86 * Math.cos(a), .86 * Math.sin(a)], .022, 6); } });
+piece('PP_FlowArrow', 'arrow', [], P => {
+  const g = new THREE.CylinderGeometry(.613, .613, .8, 12, 1, true, -Math.PI / 2 - .5, 1.0); g.rotateZ(-Math.PI / 2); add(P('Plate'), g, M.arrow, [0, PY, 0]);
+  for (const x of [-.3, .3]) { const t = new THREE.TorusGeometry(.622, .013, 3, 28); t.rotateY(Math.PI / 2); add(P('Clamps'), t, M.steel, [x, PY, 0]); add(P('Clamps'), boxG(.05, .04, .09), M.steel, [x, PY + .64, 0]); nut(P('Clamps'), [x, PY + .66, .06], [0, 0, 1], .018, .02); } });
+
+/* ================= kit display (inside root) ================= */
+const ROWS = [['CV_Straight', 'CV_TurnLeft', 'CV_TurnRight', 'CV_MergeLeft', 'CV_MergeRight', 'CV_MergeSides', 'CV_MergeAll', 'CV_Start'],
+  ['CV_Bridge1', 'CV_Bridge2', 'CV_Bridge3', 'CV_PortIn', 'CV_PortOut', 'PP_Port', 'PP_End', 'PP_FlowArrow'],
+  ['PP_Straight', 'PP_Elbow', 'PP_Tee', 'PP_Cross', 'PP_Bridge1', 'PP_Bridge2', 'PP_Bridge3']];
+const byName = Object.fromEntries(pieces.map(p => [p.name, p]));
+const KIT_Z0 = 40;
+ROWS.forEach((r, j) => r.forEach((n, i) => byName[n].position.set(-21 + i * 6, 0, KIT_Z0 + j * 7)));
+
+/* ================= test layout (outside root) ================= */
+const layout = new THREE.Group(); layout.name = 'TestLayout'; scene.add(layout);
+const water = M.pipe.clone(); water.color = new THREE.Color(0x3f7fcf); water.name = 'Water';
+const gas = M.pipe.clone(); gas.color = new THREE.Color(0xe3b21f); gas.name = 'Gas';
+const placed = [];
+function place(n, x, z, deg = 0, tint) { const o = byName[n].clone(); o.position.set(x, 0, z); o.rotation.y = deg * DEG; if (tint) o.traverse(m => { if (m.isMesh && m.name.endsWith('_Tint')) m.material = tint; }); layout.add(o); placed.push(o); return o; }
+// belt: A(+X port) → PortOut + Bridge1 → straight → merge → straight → right turn → left turn → straight → Bridge3 + PortIn → B(−X port)
+place('CV_PortOut', -1, 0); place('CV_Bridge1', -.5, 0); place('CV_Straight', 2, 0); place('CV_MergeLeft', 6, 0); place('CV_Straight', 10, 0);
+place('CV_TurnRight', 14, 0, -90); place('CV_TurnLeft', 14, 4); place('CV_Straight', 18, 4); place('CV_Bridge3', 21.5, 4); place('CV_PortIn', 23, 4);
+// side feeder: A(−Z port) → PortOut + Bridge2 → right turn → 3 straights → right turn → 2 straights → MergeLeft's −Z input
+place('CV_PortOut', -10, -8, 90); place('CV_Bridge2', -10, -9, 90); place('CV_TurnRight', -10, -12);
+for (const x of [-6, -2, 2]) place('CV_Straight', x, -12); place('CV_TurnRight', 6, -12, -90); place('CV_Straight', 6, -8, -90); place('CV_Straight', 6, -4, -90);
+// water: A(+Z port) → Port + Bridge2 → straight → elbow → cross → tee → elbow → 3 straights → elbow → Bridge1 + Port → A(−X port)
+place('PP_Port', -10, 8, 90, water); place('PP_Bridge2', -10, 9, 90, water); place('PP_Straight', -10, 12, 90, water); place('PP_Elbow', -10, 16, 90, water);
+place('PP_Cross', -14, 16, 0, water); place('PP_End', -14, 12, -90, water); place('PP_End', -14, 20, 90, water);
+place('PP_Tee', -18, 16, 180, water); place('PP_End', -18, 20, 90, water); place('PP_Elbow', -22, 16, 0, water);
+for (const z of [12, 8, 4]) place('PP_Straight', -22, z, 90, water); place('PP_Elbow', -22, 0, -90, water); place('PP_Bridge1', -19.5, 0, 0, water); place('PP_Port', -19, 0, 0, water);
+place('PP_FlowArrow', -10, 12, -90); place('PP_FlowArrow', -22, 8, 90);
+// gas: B(+X port) → Port + Bridge3 → straight → tee (+End) → elbow → straight → End
+place('PP_Port', 41, 4, 180, gas); place('PP_Bridge3', 42.5, 4, 0, gas); place('PP_Straight', 46, 4, 0, gas); place('PP_Tee', 50, 4, 0, gas); place('PP_End', 50, 0, -90, gas);
+place('PP_Elbow', 54, 4, 180, gas); place('PP_Straight', 54, 8, 90, gas); place('PP_End', 54, 12, 90, gas); place('PP_FlowArrow', 46, 4, 0); place('PP_FlowArrow', 54, 8, -90);
+// stand-in machines 16 × 10 × 14 with 2.5 × 3 port openings
+const MACH = [{ c: [-10, 0], ports: [[1, 0], [0, -1], [0, 1], [-1, 0]] }, { c: [32, 4], ports: [[-1, 0], [1, 0]] }];
+const machMat = new THREE.MeshStandardMaterial({ color: 0x8b8e8d, roughness: .85, metalness: .05 }), holeMat = new THREE.MeshStandardMaterial({ color: 0x151615, roughness: 1 });
+const wallPorts = [];
+for (const m of MACH) { const b = new THREE.Mesh(new THREE.BoxGeometry(16, 10, 14), machMat); b.position.set(m.c[0], 5, m.c[1]); b.castShadow = b.receiveShadow = true; layout.add(b);
+  for (const [nx, nz] of m.ports) { const px = m.c[0] + nx * 8, pz = m.c[1] + nz * 7, h = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 3), holeMat); h.position.set(px + nx * .01, 1.5, pz + nz * .01); h.rotation.y = Math.atan2(nx, nz); layout.add(h); wallPorts.push({ p: new V3(px, PY, pz), n: new V3(nx, 0, nz) }); } }
+// cargo riding on the belts (scale check for guards)
+const cargo = new THREE.Group(); layout.add(cargo);
+{ const straw = new THREE.MeshStandardMaterial({ color: 0xc9a24f, roughness: .9 }), crate = new THREE.MeshStandardMaterial({ color: 0xa57b4a, roughness: .8 }), sack = new THREE.MeshStandardMaterial({ color: 0xe6e4dc, roughness: .8 });
+  for (const [x, z, m, s, r] of [[1.2, 0, straw, [1.3, .9, 1.0], .1], [9.4, 0, crate, [1.5, 1.4, 1.5], 0], [18.6, 4, sack, [1.2, 1.0, 1.1], .3], [-2.4, -12, straw, [1.3, .9, 1.0], -.2], [6, -6.4, sack, [1.2, 1.0, 1.1], 1.4]]) {
+    const o = new THREE.Mesh(new THREE.BoxGeometry(...s), m); o.position.set(x, BELT_Y + s[1] / 2, z); o.rotation.y = r; o.castShadow = true; cargo.add(o); } }
+// grid (edges at x ≡ 0, z ≡ 2 mod 4)
+const grid = new THREE.Group(); layout.add(grid);
+{ const pts = []; for (let x = -28; x <= 60; x += 4) pts.push(x, .006, -18, x, .006, 26); for (let z = -18; z <= 26; z += 4) pts.push(-28, .006, z, 60, .006, z);
+  const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); grid.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x5f6260, transparent: true, opacity: .35 }))); }
+
+/* ================= environment ================= */
+{ const env = new THREE.Scene(); env.add(new THREE.Mesh(new THREE.BoxGeometry(60, 30, 60), new THREE.MeshBasicMaterial({ color: new THREE.Color(.42, .43, .44), side: THREE.BackSide })));
+  const pn = (w, h, c, p, r) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(c, c, c * .98), side: DS })); m.position.set(...p); m.rotation.set(...r); env.add(m); };
+  pn(30, 30, 4, [0, 14, 0], [Math.PI / 2, 0, 0]); pn(20, 10, 1.6, [28, 6, 10], [0, -Math.PI / 2, 0]); pn(20, 10, 1.0, [-28, 6, -8], [0, Math.PI / 2, 0]);
+  const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(env, .04).texture; scene.environmentIntensity = .6; }
+stage.setObject(kitRoot);
+layout.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+stage._ground.material = new THREE.MeshStandardMaterial({ color: 0xa9aaa6, roughness: .95 }); stage._ground.scale.setScalar(20); stage._ground.position.y = 0;
+const key = stage._key; key.intensity = 2.5; key.shadow.mapSize.set(4096, 4096); key.shadow.map?.dispose(); key.shadow.map = null; key.shadow.bias = -.0003; key.shadow.normalBias = .02; scene.add(key.target);
+function sun(t, R) { key.target.position.copy(t); key.position.copy(t).add(new V3(26, 44, 20)); const c = key.shadow.camera; c.left = c.bottom = -R; c.right = c.top = R; c.near = 1; c.far = 200; c.updateProjectionMatrix(); }
+document.getElementById('busy').remove();
+
+/* ================= checks ================= */
+const E = 1e-4, tri = m => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+const info = pieces.map(g => {
+  const b = new THREE.Box3(); g.children.forEach(m => b.union(m.geometry.boundingBox)); const size = b.getSize(new V3()), t = g.children.reduce((s, m) => s + tri(m), 0), maxMesh = Math.max(...g.children.map(tri));
+  const kind = g.userData.kind, L = g.userData.bridge, endRes = [];
+  for (const e of g.userData.ends) { if (e.type === 'wall') { const ax = 0, v = e.p[0]; endRes.push(Math.abs((e.n[0] > 0 ? b.max.x : b.min.x) - v) < E); continue; }
+    const ax = Math.abs(e.n[0]) > .5 ? 0 : 2, oth = 2 - ax, v = e.p[ax], m = g.getObjectByName(g.name + (e.type === 'belt' ? '_Belt' : '_Flanges')), pa = m.geometry.attributes.position;
+    let lo = 1e9, hi = -1e9, ymax = -1e9, rmax = 0, rmin = 1e9, cnt = 0;
+    for (let i = 0; i < pa.count; i++) { const c = [pa.getX(i), pa.getY(i), pa.getZ(i)]; if (Math.abs(c[ax] - v) > E) continue;
+      if (e.type === 'belt') { if (c[1] < 1.2 || Math.abs(c[oth] - e.p[oth]) > 1.6) continue; lo = Math.min(lo, c[oth] - e.p[oth]); hi = Math.max(hi, c[oth] - e.p[oth]); ymax = Math.max(ymax, c[1]); cnt++; }
+      else { const r = Math.hypot(c[1] - PY, c[oth] - e.p[oth]); if (r > 1) continue; rmax = Math.max(rmax, r); rmin = Math.min(rmin, r); cnt++; } }
+    let poke = false; g.children.forEach(mm => { const q = mm.geometry.attributes.position; for (let i = 0; i < q.count; i++) { const c = [q.getX(i), q.getY(i), q.getZ(i)]; if ((c[ax] - v) * (e.n[ax]) > E) poke = true; } });
+    endRes.push(cnt > 0 && !poke && (e.type === 'belt' ? Math.abs(lo + 1.5) < E && Math.abs(hi - 1.5) < E && Math.abs(ymax - BELT_Y) < E : Math.abs(rmax - .82) < .002 && Math.abs(rmin - .585) < .002)); }
+  let inCell;
+  if (L) inCell = Math.abs(b.min.x + L / 2) < E && Math.abs(b.max.x - L / 2) < E && b.min.z >= -2 - E && b.max.z <= 2 + E;
+  else if (/Port/.test(g.name)) inCell = g.name === 'CV_PortOut' ? Math.abs(b.min.x + 1) < E && Math.abs(b.max.x) < E : Math.abs(b.min.x) < E && Math.abs(b.max.x - 1) < E;
+  else inCell = b.min.x >= -2 - E && b.max.x <= 2 + E && b.min.z >= -2 - E && b.max.z <= 2 + E;
+  const bud = kind === 'belt' ? [800, 2500] : kind === 'pipe' ? [600, 2000] : [0, 1e9];
+  const names = g.children.every(m => m.name.startsWith(g.name + '_')), hasKey = kind === 'belt' ? !!g.getObjectByName(g.name + '_Belt') : kind === 'pipe' ? !!g.getObjectByName(g.name + '_Tint') : true;
+  const guardOk = kind !== 'belt' || /Port/.test(g.name) || b.max.y <= 1.9 + E;
+  return { g, name: g.name, kind, size, t, maxMesh, ends: endRes, endsOk: endRes.every(Boolean), inCell, budOk: t >= bud[0] && t <= bud[1], names, hasKey, guardOk, minY: b.min.y };
+});
+// layout: every open end meets a partner (another piece's end or a machine port) at the same point with opposite normal
+const eps = []; placed.forEach(o => { o.updateMatrixWorld(true); const q = new THREE.Quaternion(); o.getWorldQuaternion(q);
+  for (const e of byName[o.name].userData.ends) eps.push({ o, type: e.type, p: v3(e.p).applyMatrix4(o.matrixWorld), n: v3(e.n).applyQuaternion(q) }); });
+let unmatched = []; for (const e of eps) { const pool = e.type === 'wall' ? wallPorts.map(w => ({ ...w, type: 'wall' })) : eps.filter(x => x !== e && x.type === e.type);
+  const hit = pool.find(x => x.p.distanceTo(e.p) < 1e-3 && x.n.dot(e.n) < -.999); if (!hit) unmatched.push(`${e.o.name} @ ${e.p.x.toFixed(2)},${e.p.z.toFixed(2)}`); }
+let extras = 0; kitRoot.traverse(o => { if (o.isLight || o.isCamera || /Helper/.test(o.type) || o.isLineSegments) extras++; });
+const texSet = new Set(); kitRoot.traverse(o => { if (!o.isMesh) return; (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => ['map', 'normalMap'].forEach(k => m[k] && texSet.add(m[k]))); });
+const tiles = info.filter(i => !i.g.userData.bridge && !/Port|Arrow/.test(i.name));
+const checks = [
+  ['Tile open ends at x = ±2 / z = ±2 (belt top 1.32, width 3.0; flange Ø1.64 on axis y 1.5), nothing past them', tiles.every(i => i.endsOk)],
+  ['Tile pieces inside the 4 × 4 cell', tiles.every(i => i.inCell)],
+  ['Bridges exactly 1, 2, 3 long (ends at ±L/2)', info.filter(i => i.g.userData.bridge).every(i => i.inCell && i.endsOk)],
+  ['Port pieces 1 long, line end at origin, wall face at ±1', info.filter(i => /Port/.test(i.name)).every(i => i.inCell && i.endsOk)],
+  ['Every mesh < 20k triangles', info.every(i => i.maxMesh < 20000)],
+  ['Budgets: belt 800–2,500 · pipe 600–2,000', info.every(i => i.budOk)],
+  ['Belt pieces have <Group>_Belt · pipes have <Group>_Tint', info.every(i => i.hasKey)],
+  ['Side guards ≤ y 1.9 on belt tiles + bridges', info.every(i => i.guardOk)],
+  ['Mesh names <Group>_<Part>; groups direct children of root', info.every(i => i.names && i.g.parent === kitRoot)],
+  ['Everything on/above floor (y ≥ 0)', info.every(i => i.minY >= -E)],
+  ['No lights / cameras / helpers / ground in root', extras === 0],
+  [`Shared texture maps across kit: ${texSet.size}`, texSet.size <= 12],
+  [`Test layout: ${eps.length} open ends, all mated`, unmatched.length === 0],
+];
+document.getElementById('checks').innerHTML = checks.map(([k, ok]) => `<tr><td>${k}</td><td class="r ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</td></tr>`).join('') + (unmatched.length ? `<tr><td colspan="2" class="bad">${unmatched.join('<br>')}</td></tr>` : '');
+const f2 = v => (Math.round(v * 100) / 100).toString();
+document.getElementById('tris').innerHTML = info.map(i => `<tr class="pc" data-n="${i.name}"><td>${i.name}</td><td class="r">${f2(i.size.x)}×${f2(i.size.y)}×${f2(i.size.z)}</td><td class="r ${i.budOk && i.endsOk && i.inCell ? '' : 'bad'}">${i.t.toLocaleString()}</td></tr>`).join('')
+  + `<tr><td style="padding-top:4px;font-weight:600">Total (${info.length} pieces)</td><td></td><td class="r" style="padding-top:4px;font-weight:600">${info.reduce((s, i) => s + i.t, 0).toLocaleString()}</td></tr>`;
+window.__kit = { checks: Object.fromEntries(checks), unmatched, pieces: info.map(i => ({ name: i.name, size: [i.size.x, i.size.y, i.size.z].map(f2), tris: i.t, ends: i.ends, inCell: i.inCell, budOk: i.budOk, guardOk: i.guardOk })) };
+
+/* ================= views, toggles, export ================= */
+const cam = stage._camera, ctl = stage._controls, panel = document.getElementById('panel');
+const LC = new V3(16, 0, 4);
+const VIEWS = {
+  'Layout 45°': [new V3(16, 50, 4 + 50), new V3(16, 0, 2), 60],
+  'Eye 5': [new V3(5, 5, 13), new V3(14, 1.6, 0), 40],
+  'Port out': [new V3(2.6, 3.4, 5.2), new V3(-1.4, 1.7, 0), 12],
+  'Port in': [new V3(19.4, 3.6, 9.4), new V3(23.1, 1.8, 4), 12],
+  'Water line': [new V3(-4, 10, 30), new V3(-16, 1.5, 11), 26],
+  'Gas line': [new V3(40, 8, 16), new V3(49, 1.5, 5), 22],
+  'Kit': [new V3(0, 22, KIT_Z0 + 32), new V3(0, 1, KIT_Z0 + 7), 40],
+};
+window.__view = k => { const [p, t, R] = VIEWS[k]; cam.position.copy(p); ctl.target.copy(t); cam.near = .05; cam.far = 1000; cam.updateProjectionMatrix(); ctl.update(); sun(t, R); };
+window.__focus = n => { const g = byName[n], b = new THREE.Box3().setFromObject(g), c = b.getCenter(new V3()); cam.position.copy(c).add(new V3(4.2, 3.6, 5.4)); ctl.target.copy(c); ctl.update(); sun(c, 6); };
+window.__snap = () => { renderer.setClearColor(0xd6d7d4, 1); renderer.render(scene, cam); let im = document.getElementById('snap'); if (!im) { im = document.createElement('img'); im.id = 'snap'; im.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:50;object-fit:cover'; document.body.appendChild(im); } im.src = renderer.domElement.toDataURL('image/jpeg', .92); panel.style.display = 'none'; };
+window.__unsnap = () => { document.getElementById('snap')?.remove(); panel.style.display = ''; };
+const vw = document.getElementById('views'); for (const k of Object.keys(VIEWS)) { const b = document.createElement('button'); b.textContent = k; b.onclick = () => window.__view(k); vw.appendChild(b); }
+panel.querySelectorAll('tr.pc').forEach(tr => tr.onclick = () => window.__focus(tr.dataset.n));
+const toggle = (id, fn) => { const b = document.getElementById(id); b.onclick = () => { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on); fn(on); }; };
+toggle('layBtn', on => layout.visible = on); toggle('gridBtn', on => grid.visible = on); toggle('itemBtn', on => cargo.visible = on);
+document.getElementById('minBtn').onclick = e => { panel.classList.toggle('min'); e.target.textContent = panel.classList.contains('min') ? 'show' : 'hide'; };
+document.getElementById('glbBtn').onclick = async () => { const msg = document.getElementById('glbMsg'); msg.textContent = 'exporting…';
+  try { const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js'); kitRoot.updateMatrixWorld(true);
+    const buf = await new GLTFExporter().parseAsync(kitRoot, { binary: true, embedImages: true, onlyVisible: false });
+    const url = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' })), a = document.createElement('a'); a.href = url; a.download = 'Conveyor_v2.glb'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+    msg.textContent = (buf.byteLength / 1048576).toFixed(1) + ' MB'; } catch (e) { msg.textContent = 'failed: ' + e.message; throw e; } };
+window.__view('Layout 45°');
+</script>
+</body>
+</html>

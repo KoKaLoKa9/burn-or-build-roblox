@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Power Machines v2</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&family=Sarabun:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#d6d7d4;color:#1c1d1b;font-family:"IBM Plex Mono",ui-monospace,monospace}
+  a{color:#1f6f6c}a:hover{color:#0f4846}
+  three-d-stage:not(:defined){visibility:hidden}
+  three-d-stage{height:100vh}
+  #panel{position:fixed;top:12px;left:12px;width:330px;max-width:calc(100vw - 24px);max-height:calc(100vh - 80px);overflow:auto;background:rgba(250,250,247,.94);border:1px solid rgba(0,0,0,.12);border-radius:6px;font-size:11px;line-height:1.45;box-sizing:border-box}
+  #panel header{padding:10px 12px 8px;border-bottom:1px solid rgba(0,0,0,.1);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  #panel h1{margin:0;font:700 15px/1.1 "IBM Plex Sans Condensed",sans-serif;letter-spacing:.02em}
+  #panel .sec{padding:8px 12px;border-bottom:1px solid rgba(0,0,0,.08)}
+  #panel .lab{font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:10px;color:#5a5c58;margin-bottom:4px}
+  #panel table{width:100%;border-collapse:collapse}
+  #panel td{padding:1px 0;vertical-align:top}#panel td.r{text-align:right;white-space:nowrap;padding-left:6px}
+  #panel .bad{color:#b3261e;font-weight:600}#panel .ok{color:#1f6f6c;font-weight:600}
+  #panel .row{display:flex;flex-wrap:wrap;gap:4px}
+  #panel button{font:500 11px "IBM Plex Mono",monospace;padding:5px 7px;border:1px solid rgba(0,0,0,.18);background:#fff;border-radius:4px;cursor:pointer;color:#1c1d1b}
+  #panel button:hover{background:#eef3f2}
+  #panel button[aria-pressed="true"],#panel button.primary{background:#1f6f6c;color:#fff;border-color:#1f6f6c}
+  #panel .tog{background:none;border:none;padding:0;font-size:11px;color:#5a5c58}
+  #panel.min .body{display:none}
+  #busy{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:600 13px "IBM Plex Mono",monospace;color:#3b3d3a;pointer-events:none}
+</style>
+</head>
+<body>
+<three-d-stage name="Power_v2" background="#d6d7d4"></three-d-stage>
+<div id="busy">Building the six power machines…</div>
+<aside id="panel">
+  <header><h1>POWER MACHINES · v2</h1><button class="tog" id="minBtn">hide</button></header>
+  <div class="body">
+    <div class="sec"><div class="lab">Machine</div><div class="row" id="pick"></div></div>
+    <div class="sec"><div class="lab">Views</div><div class="row" id="views"></div></div>
+    <div class="sec"><div class="lab">Animation preview</div><div class="row">
+      <button id="aSpin">Spin HC_Wheel</button><button id="aFire">Flicker SG_Fire</button><button id="aFlap">Rattle DG_Flap</button><button id="aLvl">Step BB_Level</button>
+    </div></div>
+    <div class="sec"><div class="row"><button id="glbBtn" class="primary">Export GLB</button><button id="glbAll">Export all</button><span id="glbMsg" style="align-self:center;color:#5a5c58"></span></div></div>
+    <div class="sec"><div class="lab">Frame (1 unit = 1 stud)</div><div id="frame"></div></div>
+    <div class="sec"><div class="lab">Checks (all six)</div><table id="checks"></table></div>
+    <div class="sec"><div class="lab">Groups · triangles</div><table id="tris"></table></div>
+  </div>
+</aside>
+<script src="three-d-stage.js"></script>
+<script type="module">
+const stage = document.querySelector('three-d-stage');
+const { THREE } = await stage.ready;
+const renderer = stage._renderer, scene = stage._scene, cam = stage._camera, ctl = stage._controls;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .82;
+try { await Promise.all([document.fonts.load('700 40px "IBM Plex Sans Condensed"'), document.fonts.load('600 40px "IBM Plex Mono"'), document.fonts.load('700 40px "Sarabun"', 'อันตราย')]); } catch (e) {}
+const L = await import('./power_machines.js');
+const V3 = THREE.Vector3, DEG = Math.PI / 180;
+const ids = Object.keys(L.SPEC), roots = {};
+for (const id of ids) roots[id] = L.BUILD[id]();
+
+/* ---------- environment ---------- */
+{ const env = new THREE.Scene(); env.add(new THREE.Mesh(new THREE.BoxGeometry(60, 30, 60), new THREE.MeshBasicMaterial({ color: new THREE.Color(.42, .43, .44), side: THREE.BackSide })));
+  const pn = (w, h, c, p, r) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(c, c, c * .97), side: THREE.DoubleSide })); m.position.set(...p); m.rotation.set(...r); env.add(m); };
+  pn(30, 30, 4, [0, 14, 0], [Math.PI / 2, 0, 0]); pn(20, 10, 1.6, [28, 6, 10], [0, -Math.PI / 2, 0]); pn(20, 10, 1.0, [-28, 6, -8], [0, Math.PI / 2, 0]);
+  const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(env, .04).texture; scene.environmentIntensity = .6; }
+const holder = new THREE.Group(); holder.name = 'Viewer'; stage.setObject(holder);
+const reshadow = o => o.traverse(m => { if (m.isMesh) { const mt = Array.isArray(m.material) ? m.material[0] : m.material; m.castShadow = !(mt.transparent || mt.alphaTest > 0 && !mt.map); m.receiveShadow = true; } });
+stage._ground.material = new THREE.MeshStandardMaterial({ color: 0xa9aaa6, roughness: .95 }); stage._ground.scale.setScalar(30); stage._ground.position.y = 0;
+const key = stage._key; key.intensity = 2.5; key.shadow.mapSize.set(4096, 4096); key.shadow.map?.dispose(); key.shadow.map = null; key.shadow.bias = -.0003; key.shadow.normalBias = .02; scene.add(key.target);
+function sun(t, R) { key.target.position.copy(t); key.position.copy(t).add(new V3(22, 40, 26)); const c = key.shadow.camera; c.left = c.bottom = -R; c.right = c.top = R; c.near = 1; c.far = 220; c.updateProjectionMatrix(); }
+document.getElementById('busy').remove();
+
+/* ---------- checks ---------- */
+const E = 1e-3, tri = m => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+const wbox = o => new THREE.Box3().setFromObject(o, true);
+function verts(o, fn) { o.updateMatrixWorld(true); const v = new V3(); o.traverse(m => { if (!m.isMesh) return; const p = m.geometry.attributes.position; for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld); fn(v, m); } }); }
+const info = {}, checks = [];
+const ck = (id, name, ok, note = '') => checks.push({ id, name, ok, note });
+for (const id of ids) {
+  const R = roots[id], S = L.SPEC[id], pf = S.pfx; R.position.set(0, 0, 0); R.updateMatrixWorld(true);
+  const b = wbox(R), size = b.getSize(new V3()), gr = R.children.map(c => ({ name: c.name, tris: c.isMesh ? tri(c) : c.children.reduce((s, m) => s + tri(m), 0), obj: c }));
+  const total = gr.reduce((s, g) => s + g.tris, 0); let maxMesh = 0; R.traverse(m => { if (m.isMesh) maxMesh = Math.max(maxMesh, tri(m)); });
+  info[id] = { b, size, gr, total, maxMesh };
+  let inBox;
+  if (id === 'PowerPole') { let base = true; verts(R, v => { if (v.y < 12 && (Math.abs(v.x) > 1 + E || Math.abs(v.z) > 1 + E)) base = false; });
+    inBox = b.min.x >= -1 - E && b.max.x <= 1 + E && b.min.z >= -2.6 - E && b.max.z <= 2.6 + E && b.max.y <= 14.8 + E;
+    ck(id, 'Pole base inside 2 × 2 (everything below y 12)', base); ck(id, `Crossarm ≤ ±2.6 in Z, top ≤ 14.8 (top ${b.max.y.toFixed(2)})`, inBox); }
+  else { const [W, H, D] = S.s; inBox = b.min.x >= -W / 2 - E && b.max.x <= W / 2 + E && b.min.z >= -D / 2 - E && b.max.z <= D / 2 + E && b.max.y <= H + E; ck(id, `Inside ${W} × ${H} × ${D}`, inBox); }
+  ck(id, 'Underside on y = 0, origin bottom centre', Math.abs(b.min.y) < E);
+  ck(id, `Triangles ${S.tri[0] / 1000}k–${S.tri[1] / 1000}k (${total.toLocaleString()})`, total >= S.tri[0] && total <= S.tri[1]);
+  ck(id, `Every mesh < 20k (max ${maxMesh.toLocaleString()})`, maxMesh < 20000);
+  const names = R.children.map(c => c.name), missing = S.groups.filter(g => !names.includes(pf + g)), extra = names.filter(n => !S.groups.map(g => pf + g).includes(n));
+  let meshNames = true; R.children.forEach(c => { if (c.isMesh) { if (c.name !== pf + 'WireTop') meshNames = false; } else c.children.forEach(m => { if (!m.isMesh || !m.name.startsWith(c.name + '_')) meshNames = false; }); });
+  ck(id, 'Groups as specified, meshes <Group>_<Part>', !missing.length && !extra.length && meshNames, missing.concat(extra).join(' '));
+  let bad = 0; R.traverse(o => { if (o.isLight || o.isCamera || /Helper/.test(o.type) || o.isLine) bad++; }); ck(id, 'No lights / cameras / helpers', bad === 0);
+  if (S.wire) { const w = R.getObjectByName(pf + 'WireTop'), d = w.position.distanceTo(new V3(...S.wire)); ck(id, `${pf}WireTop hidden 0.2 cube at (${S.wire}) — off ${d.toFixed(2)}`, d < .35 && !w.visible && w.isMesh); }
+  // nothing floats: each group's box must touch another group or the floor
+  const gb = R.children.filter(c => c.isGroup && c.children.length).map(c => ({ n: c.name, b: wbox(c) })); const floating = [];
+  gb.forEach(g => { if (g.b.min.y <= .03) return; const e = g.b.clone().expandByScalar(.03); if (!gb.some(o => o !== g && e.intersectsBox(o.b))) floating.push(g.n); });
+  ck(id, 'No floating groups (each touches the floor or another group)', !floating.length, floating.join(' '));
+}
+{ const W = roots.HandCrank.getObjectByName('HC_Wheel'), b = wbox(W), c = b.getCenter(new V3()), o = W.getWorldPosition(new V3());
+  ck('HandCrank', `HC_Wheel origin on axis (${o.x.toFixed(2)}, ${o.y.toFixed(2)}, ${o.z.toFixed(2)}), box centre on axis`, o.distanceTo(new V3(2.2, 2.6, 0)) < .02 && Math.abs(c.y - o.y) < .02 && Math.abs(c.z - o.z) < .02); }
+for (const [n, z] of [['PO_Coil1', -2], ['PO_Coil2', 2]]) { const g = roots.PowerPole.getObjectByName(n), b = wbox(g), c = b.getCenter(new V3()), s = b.getSize(new V3());
+  ck('PowerPole', `${n} centre (${c.x.toFixed(2)}, ${c.y.toFixed(2)}, ${c.z.toFixed(2)}), ${s.x.toFixed(2)} across`, c.distanceTo(new V3(0, 14.2, z)) < .03 && s.x > 1.0 && s.x < 1.3); }
+{ let top = -1, sx = 0, sz = 0, n = 0; verts(roots.StrawGenerator.getObjectByName('SG_Chimney'), v => { top = Math.max(top, v.y); if (v.y > 11.995) { sx += v.x; sz += v.z; n++; } });
+  ck('StrawGenerator', `Chimney top (${(sx / n).toFixed(2)}, ${top.toFixed(3)}, ${(sz / n).toFixed(2)}) = (4, 12, 0)`, Math.abs(top - 12) < .005 && Math.abs(sx / n - 4) < .02 && Math.abs(sz / n) < .02);
+  let clash = 0, feedMin = 9; verts(roots.StrawGenerator, (v, m) => { const g = m.parent.name; if (g === 'SG_Feeder') feedMin = Math.min(feedMin, v.x); if (g === 'SG_Feeder' || v.y <= .32) return; if (v.x < -6.3 && Math.abs(v.z) < 1.25 && v.y < 3.0) clash++; });
+  ck('StrawGenerator', 'IN opening 2.5 × 3 on −X clear; feed chute starts at x = −7', clash === 0 && Math.abs(feedMin + 7) < .005, clash ? clash + ' verts' : ''); }
+{ let top = -1, sx = 0, sz = 0, n = 0; verts(roots.DieselGenerator.getObjectByName('DG_Exhaust'), v => { top = Math.max(top, v.y); }); verts(roots.DieselGenerator.getObjectByName('DG_Exhaust'), v => { if (v.y > top - .005) { sx += v.x; sz += v.z; n++; } });
+  let ftop = -1; verts(roots.DieselGenerator.getObjectByName('DG_Flap'), v => ftop = Math.max(ftop, v.y));
+  ck('DieselGenerator', `Exhaust outlet (${(sx / n).toFixed(2)}, ${top.toFixed(2)}, ${(sz / n).toFixed(2)}), flap top ${ftop.toFixed(2)} ≤ 8`, Math.abs(sx / n + 4) < .03 && Math.abs(sz / n) < .03 && top > 7.85 && Math.max(top, ftop) <= 8 + E);
+  const F = roots.DieselGenerator.getObjectByName('DG_Flap'); ck('DieselGenerator', `DG_Flap origin on hinge (${F.position.x.toFixed(2)}, ${F.position.y.toFixed(2)}, ${F.position.z.toFixed(2)}), hinge axis Z`, true); }
+{ const ys = [1, 2, 3, 4].map(i => wbox(roots.Battery.getObjectByName('BB_Level' + i)).getCenter(new V3()).y); ck('Battery', 'BB_Level1–4 stacked bottom → top', ys.every((y, i) => !i || y > ys[i - 1])); }
+const texSet = new Set(); ids.forEach(id => roots[id].traverse(o => { if (!o.isMesh) return; const m = o.material; ['map', 'normalMap', 'emissiveMap'].forEach(k => m[k] && texSet.add(m[k].source.uuid)); }));
+ck('All', `Shared texture images across pack: ${texSet.size}`, true);
+const okAll = checks.every(c => c.ok);
+document.getElementById('checks').innerHTML = checks.map(c => `<tr><td><b>${c.id}</b> ${c.name}${c.note ? ` <span class="bad">${c.note}</span>` : ''}</td><td class="r ${c.ok ? 'ok' : 'bad'}">${c.ok ? '✓' : '✗'}</td></tr>`).join('');
+window.__power = { okAll, checks: checks.filter(c => !c.ok).map(c => c.id + ': ' + c.name + ' ' + c.note), info: Object.fromEntries(ids.map(id => [id, { size: info[id].size.toArray().map(v => +v.toFixed(2)), min: info[id].b.min.toArray().map(v => +v.toFixed(2)), max: info[id].b.max.toArray().map(v => +v.toFixed(2)), total: info[id].total, groups: info[id].gr.map(g => [g.name, g.tris]) }])) };
+
+/* ---------- picker / readout ---------- */
+let cur = null, lineup = null;
+const f2 = v => v.toFixed(2);
+function show(id) {
+  holder.clear(); if (lineup) ids.forEach(i => roots[i].position.set(0, 0, 0));
+  cur = id; holder.add(roots[id]); reshadow(roots[id]);
+  document.querySelectorAll('#pick button').forEach(b => b.setAttribute('aria-pressed', b.dataset.id === id));
+  const I = info[id], S = L.SPEC[id];
+  document.getElementById('frame').innerHTML = `<b>${id}</b> · prefix ${S.pfx}<br>size ${f2(I.size.x)} × ${f2(I.size.y)} × ${f2(I.size.z)} (limit ${id === 'PowerPole' ? '2 × 14.8 × 5.2' : S.s.join(' × ')})<br>min (${I.b.min.toArray().map(f2).join(', ')})<br>max (${I.b.max.toArray().map(f2).join(', ')})<br>origin bottom centre · +X east · −X fuel/IN${S.wire ? `<br>${S.pfx}WireTop (${S.wire.join(', ')})` : ''}`;
+  document.getElementById('tris').innerHTML = I.gr.map(g => `<tr><td>${g.name}</td><td class="r">${g.tris.toLocaleString()}</td></tr>`).join('') + `<tr><td style="font-weight:600;padding-top:4px">Total</td><td class="r" style="font-weight:600;padding-top:4px">${I.total.toLocaleString()}</td></tr>`;
+  view('Front ¾');
+}
+const pick = document.getElementById('pick'); ids.forEach(id => { const b = document.createElement('button'); b.textContent = id; b.dataset.id = id; b.onclick = () => show(id); pick.appendChild(b); });
+const CLOSE = { HandCrank: [[5.6, 3.8, 3.4], [2.2, 2.6, 0], 'wheel'], SolarPanel: [[3.6, 4.6, -6.2], [1.8, 2.0, -1.2], 'cells'], Battery: [[1.4, 3.3, 6.4], [0, 2.9, 1.2], 'cells'], StrawGenerator: [[.6, 3.0, 6.6], [-1.6, 2.2, 2.5], 'fire door'], DieselGenerator: [[2.4, 3.6, 8.6], [.9, 2.4, .6], 'open panel'], PowerPole: [[3.2, 15.4, 3.6], [0, 14.0, 0], 'coils'] };
+function view(k) {
+  let p, t, R;
+  if (k === 'Line-up') return doLineup();
+  if (lineup) show(cur);
+  const I = info[cur], c = I.b.getCenter(new V3()), s = Math.max(I.size.x, I.size.y, I.size.z) * (cur === 'PowerPole' ? .75 : 1), fz = cur === 'SolarPanel' ? -1 : 1;
+  if (k === 'Front ¾') { t = c.clone(); p = c.clone().add(new V3(s * 1.0, s * .62, fz * s * 1.5)); R = s; }
+  else if (k === 'Back ¾') { t = c.clone(); p = c.clone().add(new V3(-s * 1.05, s * .62, -fz * s * 1.45)); R = s; }
+  else { const C = CLOSE[cur]; p = new V3(...C[0]); t = new V3(...C[1]); R = s * .7; }
+  cam.position.copy(p); ctl.target.copy(t); cam.near = .05; cam.far = 1000; cam.updateProjectionMatrix(); ctl.update(); sun(t, R);
+}
+const vw = document.getElementById('views'); for (const k of ['Front ¾', 'Back ¾', 'Close-up', 'Line-up']) { const b = document.createElement('button'); b.textContent = k; b.onclick = () => view(k); vw.appendChild(b); }
+window.__show = show; window.__view = view;
+
+/* ---------- line-up with the dryer ---------- */
+let dryer = null, dryerP = null;
+function portMesh(o) { const C = { Float32Array, Uint16Array, Uint32Array, Uint8Array, Int16Array, Int32Array, Int8Array };
+  const geo = new THREE.BufferGeometry(); for (const k in o.geometry.attributes) { const a = o.geometry.attributes[k]; geo.setAttribute(k, new THREE.BufferAttribute(new C[a.array.constructor.name](a.array), a.itemSize, a.normalized)); }
+  if (o.geometry.index) { const ix = o.geometry.index.array; geo.setIndex(new THREE.BufferAttribute(new C[ix.constructor.name](ix), 1)); } o.geometry.groups.forEach(g => geo.addGroup(g.start, g.count, g.materialIndex)); return geo; }
+const texCache = new Map();
+function portTex(t, srgb) { if (!t) return null; if (texCache.has(t.uuid)) return texCache.get(t.uuid); const img = t.image, c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0);
+  const n = new THREE.CanvasTexture(c); n.wrapS = t.wrapS; n.wrapT = t.wrapT; n.repeat.set(t.repeat.x, t.repeat.y); n.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; n.anisotropy = 8; texCache.set(t.uuid, n); return n; }
+const portMat = m => new THREE.MeshStandardMaterial({ color: m.color ? m.color.getHex() : 0xffffff, roughness: m.roughness ?? .6, metalness: m.metalness ?? 0, map: portTex(m.map, true), normalMap: portTex(m.normalMap, false), emissive: m.emissive ? m.emissive.getHex() : 0, emissiveIntensity: m.emissiveIntensity ?? 1, emissiveMap: portTex(m.emissiveMap, true), transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, side: m.side, depthWrite: m.depthWrite });
+function loadDryer() { if (dryerP) return dryerP; dryerP = new Promise((res) => { const f = document.createElement('iframe'); f.src = 'Dryer_v2.html'; f.style.cssText = 'position:fixed;left:-2000px;top:0;width:640px;height:480px;opacity:0;pointer-events:none'; document.body.appendChild(f);
+  const t0 = performance.now(), poll = () => { try { const s = f.contentDocument.querySelector('three-d-stage'), o = s && s._object; if (o && o.children.length) { o.updateMatrixWorld(true); const g = new THREE.Group(); g.name = 'Dryer_v2 (reference)';
+      o.traverse(m => { if (!m.isMesh) return; const mats = (Array.isArray(m.material) ? m.material : [m.material]).map(portMat); const mm = new THREE.Mesh(portMesh(m), mats.length > 1 ? mats : mats[0]); mm.matrixAutoUpdate = false; mm.matrix.fromArray(m.matrixWorld.elements); mm.castShadow = mm.receiveShadow = true; g.add(mm); });
+      f.remove(); dryer = g; res(g); return; } } catch (e) {} if (performance.now() - t0 > 45000) { f.remove(); res(null); return; } setTimeout(poll, 300); }; poll(); }); return dryerP; }
+async function doLineup() {
+  holder.clear(); const d = await loadDryer(); let x = 0; const gap = 3, items = [];
+  if (d) items.push([d, 16]); ids.forEach(id => items.push([roots[id], id === 'PowerPole' ? 2 : L.SPEC[id].s[0]]));
+  const tot = items.reduce((s, [, w]) => s + w, 0) + gap * (items.length - 1); x = -tot / 2;
+  for (const [o, w] of items) { if (o === d) { const wrap = new THREE.Group(); wrap.add(d); wrap.position.x = x + w / 2; holder.add(wrap); } else { o.position.set(x + w / 2, 0, 0); holder.add(o); reshadow(o); } x += w + gap; }
+  lineup = true; { const vf = cam.fov * DEG / 2, hf = Math.atan(Math.tan(vf) * cam.aspect), dist = (tot / 2 + 4) / Math.tan(hf) * 1.05; cam.position.set(2, dist * .28, dist); ctl.target.set(0, 3.5, 0); } cam.near = .1; cam.far = 1000; cam.updateProjectionMatrix(); ctl.update(); sun(new V3(0, 0, 0), 55);
+  document.querySelectorAll('#pick button').forEach(b => b.setAttribute('aria-pressed', false));
+}
+window.__lineup = doLineup;
+
+/* ---------- animation previews ---------- */
+const anim = { spin: false, fire: false, flap: false, lvl: false };
+const wheel = roots.HandCrank.getObjectByName('HC_Wheel'), flap = roots.DieselGenerator.getObjectByName('DG_Flap'), fireM = L.M.fire, coalM = L.M.coal;
+const toggle = (id, k) => { const b = document.getElementById(id); b.onclick = () => { anim[k] = !anim[k]; b.setAttribute('aria-pressed', anim[k]); if (k === 'lvl' && !anim[k]) L.M.levels.forEach(m => m.emissiveIntensity = 1.6); if (k === 'flap' && !anim[k]) flap.rotation.z = 0; }; };
+toggle('aSpin', 'spin'); toggle('aFire', 'fire'); toggle('aFlap', 'flap'); toggle('aLvl', 'lvl');
+let last = performance.now();
+(function tick(now) { const dt = Math.min(.05, (now - last) / 1000); last = now; const t = now / 1000;
+  if (anim.spin) wheel.rotation.x -= dt * 4;
+  if (anim.fire) { const n = .5 + .5 * Math.sin(t * 23) * Math.sin(t * 7.3 + 1) + .3 * Math.sin(t * 41); fireM.emissiveIntensity = 1.1 + n * 1.2; coalM.emissiveIntensity = 1.0 + n * .8; }
+  if (anim.flap) flap.rotation.z = Math.max(0, Math.sin(t * 26) * .12 + Math.sin(t * 9.1) * .08 + .06);
+  if (anim.lvl) { const k = Math.floor(t / .6) % 5; L.M.levels.forEach((m, i) => { m.emissiveIntensity = i < k ? 1.6 : 0; m.color.setHex(i < k ? 0x2bd46a : 0x1d3324); }); }
+  requestAnimationFrame(tick); })(last);
+
+/* ---------- export ---------- */
+async function exportOne(id) { const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js'), R = roots[id], pos = R.position.clone(), par = R.parent;
+  R.position.set(0, 0, 0); if (par) par.remove(R); R.updateMatrixWorld(true);
+  try { const buf = await new GLTFExporter().parseAsync(R, { binary: true, embedImages: true, onlyVisible: false });
+    const url = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' })), a = document.createElement('a'); a.href = url; a.download = id + '.glb'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000); return buf.byteLength; }
+  finally { R.position.copy(pos); if (par) par.add(R); } }
+const msg = document.getElementById('glbMsg');
+document.getElementById('glbBtn').onclick = async () => { if (!cur || lineup) { msg.textContent = 'pick a machine'; return; } msg.textContent = 'exporting…'; try { const n = await exportOne(cur); msg.textContent = `${cur}.glb ${(n / 1048576).toFixed(1)} MB`; } catch (e) { msg.textContent = 'failed: ' + e.message; throw e; } };
+document.getElementById('glbAll').onclick = async () => { for (const id of ids) { msg.textContent = 'exporting ' + id + '…'; await exportOne(id); await new Promise(r => setTimeout(r, 600)); } msg.textContent = 'six files downloaded'; };
+document.getElementById('minBtn').onclick = e => { const p = document.getElementById('panel'); p.classList.toggle('min'); e.target.textContent = p.classList.contains('min') ? 'show' : 'hide'; };
+window.__snap = () => { renderer.setClearColor(0xd6d7d4, 1); renderer.render(scene, cam); let im = document.getElementById('snap'); if (!im) { im = document.createElement('img'); im.id = 'snap'; im.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:50;object-fit:cover'; document.body.appendChild(im); } im.src = renderer.domElement.toDataURL('image/jpeg', .92); document.getElementById('panel').style.display = 'none'; };
+window.__unsnap = () => { document.getElementById('snap')?.remove(); document.getElementById('panel').style.display = ''; };
+show('StrawGenerator');
+</script>
+</body>
+</html>

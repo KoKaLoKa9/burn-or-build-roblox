@@ -18,6 +18,12 @@ local SPINNERS: { [string]: Spinner } = {
 	DY_Drum = { axis = Vector3.new(math.cos(TILT), -math.sin(TILT), 0), speed = 0.9 },
 	-- The shredder's flywheel pulley turns on a shaft along Z.
 	SH_Flywheel = { axis = Vector3.new(0, 0, 1), speed = 6 },
+	-- The pellet mill's ring die turns behind its window, on an axis along Z.
+	PM_Die = { axis = Vector3.new(0, 0, 1), speed = 3 },
+	-- Power and steam: the crank's flywheel, the pump motor's fan and the turbine shaft.
+	HC_Wheel = { axis = Vector3.new(1, 0, 0), speed = 4 },
+	WP_Fan = { axis = Vector3.new(0, 1, 0), speed = 14 },
+	ST_Shaft = { axis = Vector3.new(1, 0, 0), speed = 16 },
 }
 
 type Group = {

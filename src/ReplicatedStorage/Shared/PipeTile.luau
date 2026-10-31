@@ -4,8 +4,10 @@
 -- a joint in the middle, a short support, and a small arrow showing the flow. Colors come from
 -- PipeDefinitions so ports, pipes and the shop agree. Used by the server for placed tiles and by
 -- the client for the placement ghost. Same pivot rules as ConveyorTile: the cell centre on the
--- floor, and `openSides` uses world sides (0 east, 1 north, 2 west, 3 south).
+-- floor, and `openSides` uses world sides (0 east, 1 north, 2 west, 3 south). Uses the textured
+-- conveyor kit when it is imported (ConveyorKit).
 
+local ConveyorKit = require(script.Parent:WaitForChild("ConveyorKit"))
 local PipeDefinitions = require(script.Parent:WaitForChild("PipeDefinitions"))
 
 local PipeTile = {}
@@ -44,9 +46,47 @@ local function part(
 	return item
 end
 
+-- With the textured kit: the piece whose ends fit the open sides, tinted for the medium, with a
+-- flow arrow clamped on top, over an invisible support to click.
+local function buildFromKit(color: Color3, dir: number, openSides: { [number]: boolean }): Model?
+	local name, turn = ConveyorKit.PipePiece(dir, openSides)
+	local art = ConveyorKit.Place(name, CFrame.Angles(0, turn * math.pi / 2, 0))
+	if art == nil then
+		return nil
+	end
+	local model = Instance.new("Model")
+	model.Name = "PipeTile"
+	ConveyorKit.Tint(art, color)
+	art.Name = "Art"
+	art.Parent = model
+	local arrow = ConveyorKit.Place("PP_FlowArrow", CFrame.Angles(0, dir * math.pi / 2, 0))
+	if arrow then
+		arrow.Name = "FlowArrow"
+		arrow.Parent = model
+	end
+	local y = PipeTile.Height
+	local support = part(
+		model,
+		"Support",
+		Vector3.new(1.4, y + 0.7, 1.4),
+		CFrame.new(0, (y + 0.7) / 2, 0),
+		STEEL,
+		Enum.Material.Metal
+	)
+	support.Transparency = 1
+	support.CanQuery = true
+	model.PrimaryPart = support
+	support.PivotOffset = CFrame.new(0, -(y + 0.7) / 2, 0)
+	return model
+end
+
 function PipeTile.Build(medium: string, dir: number, openSides: { [number]: boolean }): Model
 	local pipe = PipeDefinitions.Types[medium] or PipeDefinitions.Types.Fluid
 	local color = Color3.fromRGB(table.unpack(pipe.Color))
+	local textured = buildFromKit(color, dir, openSides)
+	if textured then
+		return textured
+	end
 	local model = Instance.new("Model")
 	model.Name = "PipeTile"
 	local y = PipeTile.Height
